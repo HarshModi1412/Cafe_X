@@ -32,7 +32,7 @@ st.markdown(hide_ui, unsafe_allow_html=True)
 
 # ✅ Correct and safe set_page_config
 st.set_page_config(
-    page_title="RetailX Dashboard",
+    page_title="Cafe_X Dashboard",
     page_icon="📊",
     layout="wide",
     menu_items={
@@ -52,7 +52,7 @@ st.markdown("""
         padding-bottom: 0rem;
     }
 </style>
-<h1 style='text-align: left; color: #FFFFFF; font-size: 3em; margin: 0;'>RetailX</h1>
+<h1 style='text-align: left; color: #FFFFFF; font-size: 3em; margin: 0;'>Cafe_X</h1>
 <hr style='margin: 0.5rem auto 1rem auto; border: 1px solid #ccc; width: 100%;' />
 """, unsafe_allow_html=True)
 
