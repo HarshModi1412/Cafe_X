@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from collections import defaultdict
 
 # Module Imports
 from modules.rfm import calculate_rfm, get_campaign_targets, generate_personal_offer
@@ -8,15 +7,14 @@ from modules.profiler import generate_customer_profile
 from modules.customer_journey import map_customer_journey_and_affinity, generate_behavioral_recommendation_with_impact
 from modules.discount import generate_discount_insights, assign_offer_codes
 from modules.personalization import compute_customer_preferences
-from modules.sales_analytics import render_sales_analytics,render_subcategory_trends,generate_sales_insights
+from modules.sales_analytics import render_sales_analytics, render_subcategory_trends, generate_sales_insights
 from modules.mapper import classify_and_extract_data
 from modules.smart_insights import generate_dynamic_insights
 import BA
 import KPI_analyst
 import chatbot2
 
-import streamlit as st
-
+# --- UI Cleanup ---
 hide_ui = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -28,9 +26,7 @@ hide_ui = """
 """
 st.markdown(hide_ui, unsafe_allow_html=True)
 
-
-
-# ✅ Correct and safe set_page_config
+# --- Page Config ---
 st.set_page_config(
     page_title="Cafe_X Dashboard",
     page_icon="📊",
@@ -42,9 +38,7 @@ st.set_page_config(
     }
 )
 
-
-
-# Branding + styling
+# --- Branding ---
 st.markdown("""
 <style>
     .block-container {
@@ -58,23 +52,31 @@ st.markdown("""
 
 # --- Sidebar Upload ---
 st.sidebar.title("📁 Upload Your CSV Files")
-
 uploaded_files = st.sidebar.file_uploader(
-    "Upload 1–4 CSV files (Transactions, Customers, Products, Promotions)",
+    "Upload 1–4 CSV or Excel files",
     type=["csv", "xlsx"],
     accept_multiple_files=True
 )
 
-# --- Session State Initialization ---
+# --- Session State Setup ---
 for key in ['uploaded_files', 'files_mapped', 'txns_df', 'cust_df', 'prod_df', 'promo_df']:
     if key not in st.session_state:
         st.session_state[key] = None if key.endswith('_df') else False
 
-# --- Store Files Temporarily in Session ---
+# --- Store Raw Uploaded Files ---
+raw_dfs = {}  # Will hold raw files like df_1, df_2, etc.
 if uploaded_files:
     st.session_state["uploaded_files"] = uploaded_files
+    for idx, file in enumerate(uploaded_files):
+        ext = file.name.split('.')[-1].lower()
+        if ext == "csv":
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+        raw_dfs[f'df_{idx+1}'] = df
+        raw_dfs[f'df_{idx+1}_name'] = file.name
 
-# --- User Feedback ---
+# --- Mapping Feedback ---
 if not uploaded_files and not st.session_state["files_mapped"]:
     st.info("👈 Please upload your CSV files from the sidebar to get started.")
 elif uploaded_files and not st.session_state["files_mapped"]:
@@ -82,12 +84,13 @@ elif uploaded_files and not st.session_state["files_mapped"]:
 elif st.session_state["files_mapped"]:
     st.success("✅ Files loaded and mapped. You're ready to explore insights!")
 
-# --- Load File Data from Session ---
+# --- Load Mapped Data ---
 txns_df = st.session_state.get("txns_df")
 cust_df = st.session_state.get("cust_df")
 prod_df = st.session_state.get("prod_df")
 promo_df = st.session_state.get("promo_df")
 
+# --- Tabs ---
 tabs = st.tabs([
     "📘 Instructions", 
     "🗂️ File Mapping",
@@ -97,7 +100,6 @@ tabs = st.tabs([
     "🤖 Business Analyst AI (BETA)",
     "🤖 Chatbot"
 ])     
-
 
 # TAB 1: Instructions
 with tabs[0]:
@@ -121,7 +123,6 @@ with tabs[1]:
             mapped_data = classify_and_extract_data(uploaded_files)
 
             if mapped_data:
-                # Only now save to session
                 st.session_state['txns_df'] = mapped_data.get("Transactions")
                 st.session_state['cust_df'] = mapped_data.get("Customers")
                 st.session_state['prod_df'] = mapped_data.get("Products")
@@ -129,15 +130,14 @@ with tabs[1]:
                 st.session_state["files_mapped"] = True
                 st.rerun()
         else:
-            # Preview mapped data
             with st.expander("📄 Transactions Sample"):
-                st.dataframe(st.session_state["txns_df"].head(10) if st.session_state["txns_df"] is not None else "⚠️ Transactions data not mapped.")
+                st.dataframe(txns_df.head(10) if txns_df is not None else "⚠️ Transactions data not mapped.")
             with st.expander("📄 Customers Sample"):
-                st.dataframe(st.session_state["cust_df"].head(10) if st.session_state["cust_df"] is not None else "⚠️ Customers data not mapped.")
+                st.dataframe(cust_df.head(10) if cust_df is not None else "⚠️ Customers data not mapped.")
             with st.expander("📄 Products Sample"):
-                st.dataframe(st.session_state["prod_df"].head(10) if st.session_state["prod_df"] is not None else "⚠️ Products data not mapped.")
+                st.dataframe(prod_df.head(10) if prod_df is not None else "⚠️ Products data not mapped.")
             with st.expander("📄 Promotions Sample"):
-                st.dataframe(st.session_state["promo_df"].head(10) if st.session_state["promo_df"] is not None else "⚠️ Promotions data not mapped.")
+                st.dataframe(promo_df.head(10) if promo_df is not None else "⚠️ Promotions data not mapped.")
 
     else:
         st.info("👈 Please upload your CSV files from the sidebar to start mapping.")
@@ -158,14 +158,12 @@ with tabs[2]:
                 st.rerun()
         else:
             render_sales_analytics(txns_df)
-
-            # Add dynamic insights section (from TAB 9)
             st.markdown("---")
             st.subheader("💡 Smart Narrative & Dynamic Insights")
             insights = generate_sales_insights(txns_df)
             generate_dynamic_insights(insights)
 
-# TAB 4: Sub-Category Drilldown Analysis
+# TAB 4: Sub-Category Drilldown
 with tabs[3]:
     st.subheader("🔍 Sub-Category Drilldown Analysis")
 
@@ -213,35 +211,34 @@ with tabs[4]:
                 st.download_button("📥 Download Campaign Target List", campaign_df.to_csv(index=False), "campaign_targets.csv")
 
             if st.button("💬 Send Personalized Message"):
-                try:
-                    campaign_df = st.session_state.get('campaign_df')
-                    if campaign_df is None or campaign_df.empty:
-                        st.warning("⚠️ No campaign targets found. Please run RFM and generate the campaign list first.")
+                campaign_df = st.session_state.get('campaign_df')
+                if campaign_df is None or campaign_df.empty:
+                    st.warning("⚠️ No campaign targets found. Please run RFM and generate the campaign list first.")
+                else:
+                    message = generate_personal_offer(txns_df, cust_df)
+                    if "No eligible customers" in message:
+                        st.warning(message)
                     else:
-                        message = generate_personal_offer(txns_df, cust_df)
-                        if "No eligible customers" in message:
-                            st.warning(message)
-                        else:
-                            st.success("📨 Message Generated:")
-                            st.markdown(message)
-                except Exception as e:
-                    st.error(f"⚠️ Error generating message: {e}")
-    
-# Combined TAB 6: Business Analyst + KPI Analyst AI
+                        st.success("📨 Message Generated:")
+                        st.markdown(message)
+
+# TAB 6: Business Analyst + KPI Analyst
 with tabs[5]:
     st.subheader("🧠 Business Analyst AI + KPI Analyst")
-    
-    # Run Business Analyst functionality
-    BA.run_business_analyst_tab()
-    
-    st.markdown("---")  # Visual separation
-    
-    # Run KPI Analyst functionality
-    KPI_analyst.run_kpi_analyst()
 
-# TAB 7: Business Chatbot AI
+    if not raw_dfs:
+        st.warning("📂 Please upload at least one raw CSV/Excel file.")
+    else:
+        BA.run_business_analyst_tab(raw_dfs)
+        st.markdown("---")
+        KPI_analyst.run_kpi_analyst(raw_dfs)
+
+# TAB 7: Chatbot AI
 with tabs[6]:
-    chatbot2.run_chat()
+    if not raw_dfs:
+        st.warning("📂 Please upload at least one raw CSV/Excel file.")
+    else:
+        chatbot2.run_chat(raw_dfs)
 
 # Sidebar Reset
 if st.sidebar.button("🔄 Reset App"):
