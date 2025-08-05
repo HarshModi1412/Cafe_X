@@ -76,12 +76,12 @@ Given this business insight:
 \"{insight_text}\"
 
 Return a JSON with:
-{
+{{
 "chart_type": "bar" or "scatter" or "line" or "pie",
 "x": "column_name",
 "y": "single column OR multiple columns for comparison (as a list if needed, e.g., ['Sales', 'Profit'])",
 "title": "Descriptive title"
-}
+}}
 
 Important:
 - Use averages or ratios instead of raw totals when comparing groups like 'Ship Mode', 'Region', or 'Segment'.
