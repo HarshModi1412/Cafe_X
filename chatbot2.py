@@ -53,7 +53,13 @@ def run_chat(raw_dfs):
         st.warning("⚠️ No data provided.")
         return
 
-    df_combined = pd.concat(raw_dfs.values(), ignore_index=True)
+    valid_dfs = [df for df in raw_dfs.values() if isinstance(df, pd.DataFrame)]
+if not valid_dfs:
+    st.warning("⚠️ No valid dataframes found in raw_dfs.")
+    return
+
+df_combined = pd.concat(valid_dfs, ignore_index=True)
+
 
     # Show chat history
     for msg in st.session_state.messages:
@@ -118,4 +124,5 @@ Avoid long answers. Simple language.
 # --- Run App ---
 if __name__ == "__main__":
     run_chat()
+
 
