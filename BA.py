@@ -220,7 +220,7 @@ Return only the JSON.
             st.markdown(f"- **Impact:** {ins.get('impact')}")
 
             with st.spinner("Generating chart..."):
-                df = raw_dfs.get(file_name)
+                df = raw_dfs.get(raw_dfs)
                 spec = get_chart_spec_from_insight(df, ins.get("decision"))
                 if spec:
                     fig = generate_chart(df, spec)
