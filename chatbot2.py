@@ -4,8 +4,6 @@ import plotly.express as px
 import requests
 import json
 import re
-from io import BytesIO
-import chardet
 
 # --- Gemini API Config ---
 GEMINI_API_KEY = "AIzaSyD9DfnqPz7vMgh5aUHaMAVjeJbg20VZMvU"
@@ -25,16 +23,6 @@ def ask_gemini(messages):
     except Exception as e:
         return f"❌ Gemini API error: {e}"
 
-# --- File Loader ---
-def load_file(file):
-    raw = file.read()
-    if file.name.endswith(".csv"):
-        encoding = chardet.detect(raw)["encoding"] or "utf-8"
-        return pd.read_csv(BytesIO(raw), encoding=encoding)
-    elif file.name.endswith(".xlsx"):
-        return pd.read_excel(BytesIO(raw), engine="openpyxl")
-    return pd.DataFrame()
-
 # --- Try Plotting Based on Chat Output ---
 def try_plot_instruction(text, df):
     try:
@@ -51,14 +39,9 @@ def try_plot_instruction(text, df):
     return None
 
 # --- Run Streamlit Chatbot ---
-def run_chat():
+def run_chat(raw_dfs):
     st.set_page_config(page_title="Smart Business Consultant 📊", layout="wide")
     st.title("Gemini-Powered Business Consultant")
-
-    uploaded_files = st.file_uploader("📁 Upload your business files (CSV or Excel)", type=["csv", "xlsx"], accept_multiple_files=True)
-
-    if "dataframes" not in st.session_state:
-        st.session_state.dataframes = []
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -66,8 +49,11 @@ def run_chat():
     if "used_initial_prompt" not in st.session_state:
         st.session_state.used_initial_prompt = False
 
-    if uploaded_files:
-        st.session_state.dataframes = [load_file(file) for file in uploaded_files]
+    if not raw_dfs:
+        st.warning("⚠️ No data provided.")
+        return
+
+    df_combined = pd.concat(raw_dfs.values(), ignore_index=True)
 
     # Show chat history
     for msg in st.session_state.messages:
@@ -79,24 +65,21 @@ def run_chat():
         st.chat_message("user").markdown(user_input)
         st.session_state.messages.append({"role": "user", "parts": [{"text": user_input}]})
 
-        df_context = ""
-        if st.session_state.dataframes:
-            df_combined = pd.concat(st.session_state.dataframes, ignore_index=True)
-            preview_json = df_combined.head(30).to_json(orient="records")
-            df_context = f"Here is sample business data:\n{preview_json}"
+        preview_json = df_combined.head(30).to_json(orient="records")
+        df_context = f"Here is sample business data:\n{preview_json}"
 
         # Add system prompt once
         if "system_prompt_added" not in st.session_state:
             system_message = {
                 "role": "user",
-                "parts": [{
-                    "text": """You are a smart business consultant. Always give short, practical tips in simple language. Remember the user's previous context and provide follow-up suggestions if asked."""
+                "parts": [ {
+                    "text": "You are a smart business consultant. Always give short, practical tips in simple language. Remember the user's previous context and provide follow-up suggestions if asked."
                 }]
             }
             st.session_state.messages.insert(0, system_message)
             st.session_state.system_prompt_added = True
 
-        # First question: custom format
+        # First question: auto prompt
         if not st.session_state.used_initial_prompt:
             first_prompt = f"""
 You're a business consultant.
@@ -127,11 +110,12 @@ Avoid long answers. Simple language.
         st.session_state.messages.append({"role": "assistant", "parts": [{"text": response}]})
 
         # Try auto chart
-        if st.session_state.dataframes:
-            fig = try_plot_instruction(response, df_combined)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
+        fig = try_plot_instruction(response, df_combined)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+
 
 # --- Run App ---
 if __name__ == "__main__":
     run_chat()
+
