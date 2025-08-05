@@ -203,9 +203,6 @@ Return only the JSON.
     st.title("🤖 Gemini-Powered Insight Visualizer")
 
     for filename, df in raw_dfs.items():
-    if not isinstance(df, pd.DataFrame):
-        continue  # Skip invalid or duplicate entries
-
         st.header(f"📄 Analysis for: {filename}")
 
         st.subheader("🔍 Data Preview")
