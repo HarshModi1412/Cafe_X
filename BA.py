@@ -6,28 +6,12 @@ import chardet
 from io import BytesIO
 import requests
 
-def run_business_analyst_tab():
+def run_business_analyst_tab(raw_dfs):
     
 
     # --- Gemini API Setup ---
     GEMINI_API_KEY = "AIzaSyD9DfnqPz7vMgh5aUHaMAVjeJbg20VZMvU"
     GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-
-    # --- Load CSV or Excel Smartly ---
-    def load_data_smart(file):
-        try:
-            raw = file.read()
-            if file.name.endswith(".csv"):
-                encoding = chardet.detect(raw)["encoding"] or "ISO-8859-1"
-                return pd.read_csv(BytesIO(raw), encoding=encoding)
-            elif file.name.endswith(".xlsx"):
-                return pd.read_excel(BytesIO(raw), engine="openpyxl")
-            else:
-                st.error("Unsupported file format. Upload CSV or Excel.")
-                return pd.DataFrame()
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
-            return pd.DataFrame()
 
     # --- Ask Gemini API ---
     def ask_llm(prompt):
