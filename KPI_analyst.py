@@ -198,6 +198,10 @@ def run_kpi_analyst(raw_dfs):
     st.header("📊 KPI Analyst")
 
     for filename, df in raw_dfs.items():
+        if not isinstance(df, pd.DataFrame):
+            st.info(f"⏭️ Skipping non-DataFrame entry: {filename}")
+            continue
+
         st.subheader(f"📄 File: {filename}")
         industry = st.text_input(f"Industry for {filename}", key=f"industry_{filename}")
         scale = st.text_input(f"Business Scale for {filename}", key=f"scale_{filename}")
@@ -233,3 +237,4 @@ def run_kpi_analyst(raw_dfs):
             st.markdown(f"- **Decision:** {ins.get('decision')}")
             st.markdown(f"- **Action:** {ins.get('action')}")
             st.markdown(f"- **Estimated Impact:** {ins.get('estimated impact')}")
+
