@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from typing import Dict
 
 from modules.rfm import calculate_rfm, get_campaign_targets
 from modules.sales_analytics import (
@@ -16,9 +15,9 @@ import KPI_analyst
 import chatbot2
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # PAGE CONFIG
-# ----------------------------------------------------
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="Cafe_X Dashboard",
@@ -27,9 +26,9 @@ st.set_page_config(
 )
 
 
-# ----------------------------------------------------
-# HIDE STREAMLIT UI
-# ----------------------------------------------------
+# --------------------------------------------------
+# HIDE STREAMLIT DEFAULT UI
+# --------------------------------------------------
 
 st.markdown("""
 <style>
@@ -40,19 +39,16 @@ header {visibility:hidden;}
 """, unsafe_allow_html=True)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # HEADER
-# ----------------------------------------------------
+# --------------------------------------------------
 
-st.markdown("""
-<h1 style='color:white;'>Cafe_X</h1>
-<hr>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='color:white;'>Cafe_X</h1><hr>", unsafe_allow_html=True)
 
 
-# ----------------------------------------------------
-# SESSION STATE INIT
-# ----------------------------------------------------
+# --------------------------------------------------
+# SESSION STATE
+# --------------------------------------------------
 
 DEFAULT_STATE = {
     "mapped_data": None,
@@ -64,20 +60,20 @@ DEFAULT_STATE = {
     "promo_df": None
 }
 
-for k,v in DEFAULT_STATE.items():
+for k, v in DEFAULT_STATE.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 
-# ----------------------------------------------------
-# FILE LOADING
-# ----------------------------------------------------
+# --------------------------------------------------
+# FILE LOADER
+# --------------------------------------------------
 
 def load_files(files):
 
-    raw = {}
+    data = {}
 
-    for i,f in enumerate(files):
+    for i, f in enumerate(files):
 
         try:
 
@@ -87,39 +83,34 @@ def load_files(files):
             else:
                 df = pd.read_excel(f)
 
-            raw[f"df_{i+1}"] = df
-            raw[f"df_{i+1}_name"] = f.name
+            data[f"df_{i+1}"] = df
+            data[f"df_{i+1}_name"] = f.name
 
         except Exception as e:
-            st.error(f"Error reading {f.name}")
+            st.error(f"Failed reading {f.name}")
             st.exception(e)
 
-    return raw
+    return data
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # SIDEBAR UPLOAD
-# ----------------------------------------------------
+# --------------------------------------------------
 
 st.sidebar.title("Upload Data")
 
 uploaded_files = st.sidebar.file_uploader(
     "Upload CSV or Excel",
-    type=["csv","xlsx"],
+    type=["csv", "xlsx"],
     accept_multiple_files=True
 )
 
 raw_dfs = load_files(uploaded_files) if uploaded_files else {}
 
 
-# ----------------------------------------------------
-# AUTO MAPPING (FAST)
-# ----------------------------------------------------
-
-@st.cache_data(show_spinner=False)
-def auto_map(files):
-    return classify_and_extract_data(files)
-
+# --------------------------------------------------
+# AUTOMATIC MAPPING
+# --------------------------------------------------
 
 def run_mapping(files):
 
@@ -128,10 +119,10 @@ def run_mapping(files):
 
     with st.spinner("Running automatic mapping..."):
 
-        mapped = auto_map(files)
+        mapped = classify_and_extract_data(files)
 
-        if not mapped or not isinstance(mapped,dict):
-            st.error("Automatic mapping failed")
+        if not mapped or not isinstance(mapped, dict):
+            st.error("Mapping failed")
             return None
 
         st.session_state.mapped_data = mapped
@@ -145,28 +136,28 @@ def run_mapping(files):
     return mapped
 
 
-# ----------------------------------------------------
-# SIDEBAR MAPPING VIEW
-# ----------------------------------------------------
+# --------------------------------------------------
+# SIDEBAR MAPPING STATUS
+# --------------------------------------------------
 
 def show_mapping_sidebar(mapped):
 
     st.sidebar.markdown("### Mapping Status")
 
-    mapped_cols=set()
-    all_cols=set()
+    mapped_cols = set()
+    all_cols = set()
 
     for df in mapped.values():
 
         if df is None:
             continue
 
-        cols=list(df.columns)
+        cols = list(df.columns)
 
-        mapped_cols.update(cols)
         all_cols.update(cols)
+        mapped_cols.update(cols)
 
-    unmapped=list(all_cols-mapped_cols)
+    unmapped = list(all_cols - mapped_cols)
 
     st.sidebar.write("Mapped Columns")
     st.sidebar.write(list(mapped_cols))
@@ -175,33 +166,41 @@ def show_mapping_sidebar(mapped):
     st.sidebar.write(unmapped)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TABS
-# ----------------------------------------------------
+# --------------------------------------------------
 
-tabs = st.tabs([ "📘 Instructions", "🗂️ File Mapping", "📊 Sales Analytics", "🔍 Sub Category Analysis", "📊 RFM Segmentation", "🤖 Business Analyst", "🤖 Chatbot" ])
+tabs = st.tabs([
+    "📘 Instructions",
+    "🗂️ File Mapping",
+    "📊 Sales Analytics",
+    "🔍 Sub Category Analysis",
+    "📊 RFM",
+    "🤖 Business Analyst",
+    "🤖 Chatbot"
+])
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 1
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[0]:
 
     st.markdown("""
 ### How to Use
 
-1 Upload files  
-2 Automatic mapping runs  
-3 Review mapped/unmapped columns  
-4 Fix mapping manually if needed  
-5 Run analytics
+1. Upload files  
+2. Automatic mapping runs  
+3. Review mapped columns  
+4. Fix mapping manually if needed  
+5. Run analytics
 """)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 2 MAPPING
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[1]:
 
@@ -211,22 +210,22 @@ with tabs[1]:
         st.info("Upload files first")
         st.stop()
 
-    mapped=run_mapping(uploaded_files)
+    mapped = run_mapping(uploaded_files)
 
     if mapped is None:
         st.stop()
 
     show_mapping_sidebar(mapped)
 
-    txns_df=mapped.get("Transactions")
+    txns_df = mapped.get("Transactions")
 
-    col1,col2=st.columns(2)
+    col1, col2 = st.columns(2)
 
     with col1:
 
         st.markdown("### Available Columns")
 
-        for name,df in mapped.items():
+        for name, df in mapped.items():
 
             if df is None:
                 continue
@@ -242,7 +241,7 @@ with tabs[1]:
 
         st.markdown("### Auto Mapping")
 
-        for name,df in mapped.items():
+        for name, df in mapped.items():
 
             if df is None:
                 continue
@@ -250,17 +249,17 @@ with tabs[1]:
             st.write(f"{name} → {list(df.columns)}")
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # MANUAL MAPPING
-# ----------------------------------------------------
+# --------------------------------------------------
 
-    st.markdown("### Manual Mapping (Optional)")
+    st.markdown("### Manual Mapping")
 
     if txns_df is not None:
 
-        all_cols=list(txns_df.columns)
+        all_cols = list(txns_df.columns)
 
-        required_fields=[
+        required_fields = [
             "customer_id",
             "transaction_date",
             "product_id",
@@ -268,29 +267,30 @@ with tabs[1]:
             "quantity"
         ]
 
-        mapped_cols=[]
+        mapped_cols = []
 
         for field in required_fields:
 
-            col=st.selectbox(
+            options = ["None"] + [c for c in all_cols if c not in mapped_cols]
+
+            selected = st.selectbox(
                 f"Map {field}",
-                ["None"]+[c for c in all_cols if c not in mapped_cols],
-                key=field
+                options,
+                key=f"map_{field}"
             )
 
-            if col!="None":
-                mapped_cols.append(col)
+            if selected != "None":
+                mapped_cols.append(selected)
+                st.session_state.manual_mapping[field] = selected
 
-                st.session_state.manual_mapping[field]=col
 
-
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 3 SALES
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[2]:
 
-    txns_df=st.session_state.txns_df
+    txns_df = st.session_state.txns_df
 
     if txns_df is None:
         st.warning("Transactions data required")
@@ -300,17 +300,17 @@ with tabs[2]:
 
     st.divider()
 
-    insights=generate_sales_insights(txns_df)
+    insights = generate_sales_insights(txns_df)
     generate_dynamic_insights(insights)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 4 SUBCATEGORY
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[3]:
 
-    txns_df=st.session_state.txns_df
+    txns_df = st.session_state.txns_df
 
     if txns_df is None:
         st.warning("Transactions data required")
@@ -319,13 +319,13 @@ with tabs[3]:
     render_subcategory_trends(txns_df)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 5 RFM
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[4]:
 
-    txns_df=st.session_state.txns_df
+    txns_df = st.session_state.txns_df
 
     if txns_df is None:
         st.warning("Transactions data required")
@@ -335,7 +335,7 @@ with tabs[4]:
 
         with st.spinner("Running segmentation"):
 
-            rfm=calculate_rfm(txns_df)
+            rfm = calculate_rfm(txns_df)
 
         st.dataframe(rfm.head())
 
@@ -345,7 +345,7 @@ with tabs[4]:
             "rfm.csv"
         )
 
-        camp=get_campaign_targets(rfm)
+        camp = get_campaign_targets(rfm)
 
         if camp is not None:
 
@@ -358,14 +358,14 @@ with tabs[4]:
             )
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 6 BUSINESS ANALYST
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[5]:
 
     if not raw_dfs:
-        st.warning("Upload data files")
+        st.warning("Upload files first")
         st.stop()
 
     BA.run_business_analyst_tab(raw_dfs)
@@ -375,22 +375,22 @@ with tabs[5]:
     KPI_analyst.run_kpi_analyst(raw_dfs)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # TAB 7 CHATBOT
-# ----------------------------------------------------
+# --------------------------------------------------
 
 with tabs[6]:
 
     if not raw_dfs:
-        st.warning("Upload files")
+        st.warning("Upload files first")
         st.stop()
 
     chatbot2.run_chat(raw_dfs)
 
 
-# ----------------------------------------------------
+# --------------------------------------------------
 # RESET
-# ----------------------------------------------------
+# --------------------------------------------------
 
 if st.sidebar.button("Reset App"):
 
@@ -398,4 +398,3 @@ if st.sidebar.button("Reset App"):
         del st.session_state[k]
 
     st.rerun()
-
