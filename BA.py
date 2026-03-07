@@ -7,10 +7,7 @@ from openai import OpenAI
 
 def run_business_analyst_tab(raw_dfs):
 
-    # 🔑 Put your OpenAI API Key here
-    OPENAI_API_KEY = "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"
-
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
     # -------------------------
     # LLM CALL
