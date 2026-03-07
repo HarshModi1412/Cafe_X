@@ -7,8 +7,11 @@ from openai import OpenAI
 
 def run_business_analyst_tab(raw_dfs):
 
+    if "OPENAI_API_KEY" not in st.secrets:
+        st.error("OPENAI_API_KEY not found in Streamlit secrets")
+        st.stop()
+    
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
     # -------------------------
     # LLM CALL
     # -------------------------
