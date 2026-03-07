@@ -179,15 +179,7 @@ def show_mapping_sidebar(mapped):
 # TABS
 # ----------------------------------------------------
 
-tabs=st.tabs([
-"Instructions",
-"File Mapping",
-"Sales Analytics",
-"Sub Category Analysis",
-"RFM",
-"Business Analyst",
-"Chatbot"
-])
+tabs = st.tabs([ "📘 Instructions", "🗂️ File Mapping", "📊 Sales Analytics", "🔍 Sub Category Analysis", "📊 RFM Segmentation", "🤖 Business Analyst", "🤖 Chatbot" ])
 
 
 # ----------------------------------------------------
@@ -406,3 +398,4 @@ if st.sidebar.button("Reset App"):
         del st.session_state[k]
 
     st.rerun()
+
