@@ -117,31 +117,50 @@ with tabs[1]:
     st.subheader("🗂️ File Mapping & Confirmation")
 
     if uploaded_files:
-        st.markdown("### 🧩 Column Mapping for Each File")
 
-        if not st.session_state.get("files_mapped"):
-            mapped_data = classify_and_extract_data(uploaded_files)
+        if "mapped_data" not in st.session_state:
+            with st.spinner("🔍 Detecting file structures..."):
+                mapped_data = classify_and_extract_data(uploaded_files)
 
-            if mapped_data:
-                st.session_state['txns_df'] = mapped_data.get("Transactions")
-                st.session_state['cust_df'] = mapped_data.get("Customers")
-                st.session_state['prod_df'] = mapped_data.get("Products")
-                st.session_state['promo_df'] = mapped_data.get("Promotions")
-                st.session_state["files_mapped"] = True
-                st.rerun()
+            st.session_state["mapped_data"] = mapped_data
         else:
-            with st.expander("📄 Transactions Sample"):
-                st.dataframe(txns_df.head(10) if txns_df is not None else "⚠️ Transactions data not mapped.")
-            with st.expander("📄 Customers Sample"):
-                st.dataframe(cust_df.head(10) if cust_df is not None else "⚠️ Customers data not mapped.")
-            with st.expander("📄 Products Sample"):
-                st.dataframe(prod_df.head(10) if prod_df is not None else "⚠️ Products data not mapped.")
-            with st.expander("📄 Promotions Sample"):
-                st.dataframe(promo_df.head(10) if promo_df is not None else "⚠️ Promotions data not mapped.")
+            mapped_data = st.session_state["mapped_data"]
+
+        txns_df = mapped_data.get("Transactions")
+        cust_df = mapped_data.get("Customers")
+        prod_df = mapped_data.get("Products")
+        promo_df = mapped_data.get("Promotions")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### 📄 Available Columns")
+
+            for name, df in mapped_data.items():
+                if df is not None:
+                    st.markdown(f"**{name} File**")
+                    for c in df.columns:
+                        st.write(c)
+
+        with col2:
+            st.markdown("### 🔗 Current Mapping")
+
+            if txns_df is not None:
+                st.write("Transactions:", list(txns_df.columns))
+
+            if cust_df is not None:
+                st.write("Customers:", list(cust_df.columns))
+
+            if prod_df is not None:
+                st.write("Products:", list(prod_df.columns))
+
+            if promo_df is not None:
+                st.write("Promotions:", list(promo_df.columns))
+
+        st.success("✅ Mapping Completed")
 
     else:
-        st.info("👈 Please upload your CSV files from the sidebar to start mapping.")
-
+        st.info("👈 Upload files from sidebar")
 # TAB 3: Sales Analytics
 with tabs[2]:
     st.subheader("📊 Sales Analytics Overview")
@@ -245,3 +264,4 @@ if st.sidebar.button("🔄 Reset App"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
+
