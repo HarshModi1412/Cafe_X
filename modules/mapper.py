@@ -97,20 +97,22 @@ def auto_map_fields(role, inventory):
     return mapping
 
 
-def build_dataframe_from_mapping(mapping, required_fields):
-    # Step 1: Pull in each mapped series
+def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
+    file_lookup = {name: df for name, df in file_dfs}
+
     columns = {}
     max_len = 0
-    for field, (_, _, series) in mapping.items():
-        s = series.reset_index(drop=True)
+
+    for field, (fname, col) in mapping.items():
+        s = file_lookup[fname][col].reset_index(drop=True)
         columns[field] = s
         max_len = max(max_len, len(s))
 
-    # Step 2: Build DataFrame skeleton
-    df = pd.DataFrame({field: columns.get(field, pd.Series([pd.NA] * max_len))
-                       for field in required_fields})
-
-    # Step 3: If Invoice Total missing or all null, compute from Unit Price & Quantity
+    df = pd.DataFrame({
+        field: columns.get(field, pd.Series([pd.NA] * max_len))
+        for field in required_fields
+    })
+# Step 3: If Invoice Total missing or all null, compute from Unit Price & Quantity
     if "Invoice Total" in required_fields:
         if df["Invoice Total"].isnull().all() and {"Unit Price", "Quantity"}.issubset(df):
             df["Invoice Total"] = (
@@ -126,7 +128,6 @@ def build_dataframe_from_mapping(mapping, required_fields):
                 pd.to_numeric(df["Unit Cost"], errors="coerce") *
                 pd.to_numeric(df["Quantity"], errors="coerce")
             )
-
     return df
 
 
@@ -136,54 +137,40 @@ def classify_and_extract_data(uploaded_files):
 
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    # ---------------- SESSION STATE INIT ----------------
-    if "mapping_store" not in st.session_state:
-        st.session_state.mapping_store = {}
-
-    if "confirm_mapping_clicked" not in st.session_state:
-        st.session_state.confirm_mapping_clicked = False
-
     all_cols = sorted({
         col for _, df in file_dfs for col in df.columns
     })
 
-    # ---------------- UI ----------------
-    for role in REQUIRED_FIELDS:
+    # ---------------- FORM ----------------
+    with st.form("mapping_form"):
 
-        st.markdown(f"### 🗂 Mapping for `{role}`")
+        for role in REQUIRED_FIELDS:
 
-        auto_mapping = auto_map_fields(role, inventory)
+            st.markdown(f"### 🗂 Mapping for `{role}`")
 
-        for field in REQUIRED_FIELDS[role]:
+            auto_mapping = auto_map_fields(role, inventory)
 
-            key = f"{role}_{field}"
+            for field in REQUIRED_FIELDS[role]:
 
-            # Pre-fill
-            default_val = "--"
-            if field in auto_mapping:
-                default_val = auto_mapping[field][1]
+                key = f"{role}_{field}"
 
-            if key not in st.session_state.mapping_store:
-                st.session_state.mapping_store[key] = default_val
+                # default value setup (only once)
+                if key not in st.session_state:
+                    default_val = "--"
+                    if field in auto_mapping:
+                        default_val = auto_mapping[field][1]
+                    st.session_state[key] = default_val
 
-            current_val = st.session_state.mapping_store[key]
+                st.selectbox(
+                    f"{field}",
+                    ["--"] + all_cols,
+                    key=key
+                )
 
-            selection = st.selectbox(
-                f"{field}",
-                ["--"] + all_cols,
-                index=(["--"] + all_cols).index(current_val) if current_val in all_cols else 0,
-                key=key
-            )
+        submitted = st.form_submit_button("✅ Confirm Mapping")
 
-            # Persist selection
-            st.session_state.mapping_store[key] = selection
-
-    # ---------------- BUTTON (STATEFUL) ----------------
-    if st.button("✅ Confirm Mapping"):
-        st.session_state.confirm_mapping_clicked = True
-
-    # ---------------- SAVE LOGIC ----------------
-    if st.session_state.confirm_mapping_clicked:
+    # ---------------- AFTER SUBMIT ----------------
+    if submitted:
 
         final_data = {}
 
@@ -194,7 +181,7 @@ def classify_and_extract_data(uploaded_files):
                 role_mapping = {}
 
                 for field in REQUIRED_FIELDS[role]:
-                    sel = st.session_state.mapping_store.get(f"{role}_{field}")
+                    sel = st.session_state.get(f"{role}_{field}")
 
                     if sel and sel != "--":
                         for fname, df in file_dfs:
@@ -207,9 +194,6 @@ def classify_and_extract_data(uploaded_files):
                     file_dfs,
                     list(REQUIRED_FIELDS[role].keys())
                 )
-
-        # 🔑 RESET FLAG (critical)
-        st.session_state.confirm_mapping_clicked = False
 
         return final_data, True
 
