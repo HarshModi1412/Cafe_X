@@ -39,7 +39,8 @@ defaults = {
     "promo_df": None,
     "start_sales_analysis": False,
     "start_subcat_analysis": False,
-    "run_rfm": False
+    "run_rfm": False,
+    "mapping_submitted": False   # 🔑 ONLY FLAG NEEDED
 }
 
 for k, v in defaults.items():
@@ -56,41 +57,24 @@ uploaded_files = st.sidebar.file_uploader(
 )
 
 # ---------------- FILE UPLOAD ----------------
-if uploaded_files:
+if uploaded_files and st.session_state["last_uploaded_files"] != uploaded_files:
 
-    if st.session_state["last_uploaded_files"] != uploaded_files:
+    st.session_state["last_uploaded_files"] = uploaded_files
 
-        st.session_state["last_uploaded_files"] = uploaded_files
+    with st.spinner("🔐 Reading your precious data (safe with us)..."):
+        raw_dfs = {}
 
-        with st.spinner("🔐 Reading your precious data (safe with us)..."):
-            raw_dfs = {}
+        for i, file in enumerate(uploaded_files):
+            ext = file.name.split('.')[-1].lower()
+            df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
 
-            for i, file in enumerate(uploaded_files):
-                ext = file.name.split('.')[-1].lower()
+            raw_dfs[f"df_{i+1}"] = df
+            raw_dfs[f"df_{i+1}_name"] = file.name
 
-                try:
-                    df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
-
-                    raw_dfs[f"df_{i+1}"] = df
-                    raw_dfs[f"df_{i+1}_name"] = file.name
-
-                except Exception as e:
-                    st.error(f"Error loading {file.name}: {e}")
-
-        st.session_state["raw_dfs"] = raw_dfs
-        st.success("✅ Files uploaded")
+    st.session_state["raw_dfs"] = raw_dfs
+    st.success("✅ Files uploaded")
 
 raw_dfs = st.session_state.get("raw_dfs", {})
-
-# ---------------- STATUS ----------------
-if not uploaded_files and not st.session_state["files_mapped"]:
-    st.info("👈 Upload files from sidebar")
-elif uploaded_files and not st.session_state["files_mapped"]:
-    st.warning("📤 Files uploaded. Go to File Mapping tab")
-elif st.session_state["files_mapped"]:
-    st.success("✅ Files mapped. Ready")
-
-# ---------------- DATA ----------------
 txns_df = st.session_state["txns_df"]
 
 # ---------------- TABS ----------------
@@ -109,7 +93,7 @@ with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# ---------------- TAB 2 (FIXED) ----------------
+# ---------------- TAB 2 (FINAL FIX) ----------------
 with tabs[1]:
     st.subheader("File Mapping")
 
@@ -117,39 +101,37 @@ with tabs[1]:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-# persist submission
-if confirmed:
-    st.session_state["mapping_submitted"] = True
+        # 🔑 Persist click
+        if confirmed:
+            st.session_state["mapping_submitted"] = True
 
-# execute using persistent state
-if st.session_state.get("mapping_submitted", False):
+        # 🔑 Execute mapping ONCE
+        if st.session_state["mapping_submitted"]:
 
-    with st.spinner("💾 Saving mapping..."):
+            with st.spinner("💾 Saving mapping..."):
 
-        st.session_state["txns_df"] = mapped_data.get("Transactions")
-        st.session_state["cust_df"] = mapped_data.get("Customers")
-        st.session_state["prod_df"] = mapped_data.get("Products")
-        st.session_state["promo_df"] = mapped_data.get("Promotions")
+                st.session_state["txns_df"] = mapped_data.get("Transactions")
+                st.session_state["cust_df"] = mapped_data.get("Customers")
+                st.session_state["prod_df"] = mapped_data.get("Products")
+                st.session_state["promo_df"] = mapped_data.get("Promotions")
 
-        st.session_state["files_mapped"] = True
+                st.session_state["files_mapped"] = True
 
-    st.session_state["mapping_submitted"] = False  # reset
+            st.session_state["mapping_submitted"] = False
 
-    st.success("✅ Mapping completed successfully")
-    st.info("👉 You can now proceed to Analytics tabs")
-        # ✅ show after mapping
+            st.success("✅ Mapping completed successfully")
+            st.info("👉 You can now proceed to Analytics tabs")
+
         elif st.session_state.get("files_mapped", False):
 
             st.success("✅ Mapping already completed")
 
             if st.session_state["txns_df"] is not None:
-                st.dataframe(
-                    st.session_state["txns_df"].head(),
-                    width="stretch"
-                )
+                st.dataframe(st.session_state["txns_df"].head(), width="stretch")
 
     else:
         st.info("Upload files first")
+
 # ---------------- TAB 3 ----------------
 with tabs[2]:
     if txns_df is None:
