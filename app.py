@@ -62,7 +62,7 @@ if uploaded_files:
 
         st.session_state["last_uploaded_files"] = uploaded_files
 
-        with st.spinner("📤 Uploading files..."):
+        with st.spinner("📤 Reading file..."):
             raw_dfs = {}
 
             for i, file in enumerate(uploaded_files):
