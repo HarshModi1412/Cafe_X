@@ -6,85 +6,48 @@ from collections import defaultdict
 
 REQUIRED_FIELDS = {
     "Transactions": {
-        "Invoice ID": ["invoice_id", "bill_no", "invoice number", "InvoiceNo", "Invoice No", "orderid", "order id", "order_id","transaction_id","transaction id","transactionid"],
-        "Date": ["date", "invoice_date", "purchase_date", "Invoicedate", "orderdate", "order date","transaction_date","transactiondate","transaction date"],
-        "Sub Category": ["subcat", "product_type", "subcategory", "sub-category"],
-        "Invoice Total": ["amount", "invoice_amount", "total_amount", "grand_total", "Sales", "sales"],
-        "Quantity": ["qty", "units", "number of items"],
-        "Discount": ["discount_amt", "disc", "offer_discount", "discount"],
-        "Description": ["offer", "promo_desc", "discount name", "description"],
-        "Transaction Type": ["transaction_type", "type", "return"],
-        "Production Cost": ["cost", "production_cost", "item_cost"],
-        "Unit Cost": ["unit_cost", "unit cost", "cost per unit"],
-        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
-        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
-        "Unit Price": ["unit", "price", "unit_price", "product price", "unitprice"]
-    },
-    "Customers": {
-        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
-        "Gender": ["sex", "customer_gender"],
-        "Name": ["name", "NAME", "customer_name"],
-        "Telephone": ["telephone", "phone", "number"],
-        "Email": ["email", "mail"],
-        "Date Of Birth": ["date_of_birth", "dob"]
-    },
-    "Products": {
-        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
-        "Sub Category": ["subcategory", "subcat", "product_type", "catagory"],
-        "Category": ["cat", "product_cat", "segment"]
-    },
-    "Promotions": {
-        "Description": ["offer_desc", "campaign_desc", "promotion_name"],
-        "Start": ["start", "from_date", "campaign_start", "start_date"],
-        "End": ["end", "to_date", "campaign_end", "end_date"],
-        "Discont": ["discount_value", "discount_rate", "disc"]
+        "Invoice ID": ["invoice_id", "bill_no"],
+        "Date": ["date", "invoice_date"],
+        "Sub Category": ["subcategory"],
+        "Invoice Total": ["amount", "sales"],
+        "Quantity": ["qty", "quantity"],
+        "Discount": ["discount"],
+        "Description": ["description"],
+        "Transaction Type": ["type"],
+        "Production Cost": ["cost"],
+        "Unit Cost": ["unit_cost"],
+        "Product ID": ["productid"],
+        "Customer ID": ["customerid"],
+        "Unit Price": ["unit_price", "price"]
     }
 }
 
 # ------------------ HELPERS ------------------
 
-def normalize(col: str) -> str:
+def normalize(col):
     return col.strip().lower().replace(" ", "_")
 
 
-@st.cache_data(show_spinner=False)
-def load_file(file):
-    ext = file.name.lower().split('.')[-1]
-
-    if ext == "csv":
-        try:
-            return pd.read_csv(file, encoding="utf-8")
-        except:
-            file.seek(0)
-            return pd.read_csv(file, encoding="latin1")
-
-    elif ext in ("xlsx", "xls"):
-        return pd.read_excel(file, engine="openpyxl")
-
-    return None
-
-
-@st.cache_data(show_spinner=False)
-def build_column_inventory(files):
-    inventory = defaultdict(list)
-    file_dfs = []
-
+@st.cache_data
+def load_files(files):
+    dfs = []
     for file in files:
-        df = load_file(file)
-        if df is None:
-            continue
+        ext = file.name.split('.')[-1].lower()
+        df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
+        dfs.append((file.name, df))
+    return dfs
 
-        file_dfs.append((file.name, df))
 
+def build_inventory(file_dfs):
+    inv = defaultdict(list)
+    for fname, df in file_dfs:
         for col in df.columns:
-            inventory[normalize(col)].append((file.name, col))
+            inv[normalize(col)].append((fname, col))
+    return inv
 
-    return inventory, file_dfs
 
-
-def auto_map_fields(role, inventory):
+def auto_map(role, inventory):
     mapping = {}
-
     for field, aliases in REQUIRED_FIELDS[role].items():
         candidates = [field] + aliases
         candidates = [normalize(c) for c in candidates]
@@ -93,93 +56,64 @@ def auto_map_fields(role, inventory):
             if c in inventory:
                 mapping[field] = inventory[c][0]
                 break
-
     return mapping
-
-
-def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
-    file_lookup = {name: df for name, df in file_dfs}
-
-    columns = {}
-    max_len = 0
-
-    for field, (fname, col) in mapping.items():
-        s = file_lookup[fname][col].reset_index(drop=True)
-        columns[field] = s
-        max_len = max(max_len, len(s))
-
-    df = pd.DataFrame({
-        field: columns.get(field, pd.Series([pd.NA] * max_len))
-        for field in required_fields
-    })
-
-    return df
 
 
 # ------------------ MAIN ------------------
 
 def classify_and_extract_data(uploaded_files):
 
-    inventory, file_dfs = build_column_inventory(uploaded_files)
+    file_dfs = load_files(uploaded_files)
+    inventory = build_inventory(file_dfs)
 
-    all_cols = sorted({
-        col for _, df in file_dfs for col in df.columns
-    })
+    all_cols = sorted({col for _, df in file_dfs for col in df.columns})
 
     # ---------------- FORM ----------------
     with st.form("mapping_form"):
 
-        for role in REQUIRED_FIELDS:
+        auto_mapping = auto_map("Transactions", inventory)
 
-            st.markdown(f"### 🗂 Mapping for `{role}`")
+        for field in REQUIRED_FIELDS["Transactions"]:
+            key = f"Transactions_{field}"
 
-            auto_mapping = auto_map_fields(role, inventory)
+            if key not in st.session_state:
+                st.session_state[key] = auto_mapping.get(field, ("", "--"))[1] if field in auto_mapping else "--"
 
-            for field in REQUIRED_FIELDS[role]:
-
-                key = f"{role}_{field}"
-
-                # default value setup (only once)
-                if key not in st.session_state:
-                    default_val = "--"
-                    if field in auto_mapping:
-                        default_val = auto_mapping[field][1]
-                    st.session_state[key] = default_val
-
-                st.selectbox(
-                    f"{field}",
-                    ["--"] + all_cols,
-                    key=key
-                )
+            st.selectbox(field, ["--"] + all_cols, key=key)
 
         submitted = st.form_submit_button("✅ Confirm Mapping")
 
-    # ---------------- AFTER SUBMIT ----------------
+    # ---------------- PROCESS ----------------
     if submitted:
 
-        final_data = {}
+        df_final = pd.DataFrame()
 
-        with st.spinner("💾 Saving mapping..."):
+        # 🔑 STRICT MAPPING
+        for field in REQUIRED_FIELDS["Transactions"]:
+            col_name = st.session_state.get(f"Transactions_{field}")
 
-            for role in REQUIRED_FIELDS:
+            if col_name and col_name != "--":
+                found = False
 
-                role_mapping = {}
+                for fname, df in file_dfs:
+                    if col_name in df.columns:
+                        df_final[field] = df[col_name]
+                        found = True
+                        break
 
-                for field in REQUIRED_FIELDS[role]:
-                    sel = st.session_state.get(f"{role}_{field}")
+                if not found:
+                    st.error(f"{field} not found in any file")
 
-                    if sel and sel != "--":
-                        for fname, df in file_dfs:
-                            if sel in df.columns:
-                                role_mapping[field] = (fname, sel)
-                                break
+        # 🔑 NUMERIC FIX
+        for col in ["Quantity", "Unit Price", "Invoice Total"]:
+            if col in df_final.columns:
+                df_final[col] = pd.to_numeric(df_final[col], errors="coerce")
 
-                final_data[role] = build_dataframe_from_mapping(
-                    role_mapping,
-                    file_dfs,
-                    list(REQUIRED_FIELDS[role].keys())
-                )
+        # 🔑 CRITICAL: CALCULATE TOTAL
+        if "Invoice Total" not in df_final.columns or df_final["Invoice Total"].isna().all():
+            if "Quantity" in df_final and "Unit Price" in df_final:
+                df_final["Invoice Total"] = df_final["Quantity"] * df_final["Unit Price"]
 
-        return final_data, True
+        return {"Transactions": df_final}, True
 
     return None, False
