@@ -115,30 +115,34 @@ with tabs[1]:
 
     if uploaded_files:
 
-        if not st.session_state["files_mapped"]:
+        mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-            mapped_data, confirmed = classify_and_extract_data(uploaded_files)
+        # ✅ Handle mapping ONCE
+        if confirmed and not st.session_state.get("mapping_done_once", False):
 
-            if confirmed:
+            with st.spinner("💾 Saving mapping..."):
 
-                with st.spinner("💾 Saving mapping..."):
+                st.session_state["txns_df"] = mapped_data.get("Transactions")
+                st.session_state["cust_df"] = mapped_data.get("Customers")
+                st.session_state["prod_df"] = mapped_data.get("Products")
+                st.session_state["promo_df"] = mapped_data.get("Promotions")
 
-                    st.session_state["txns_df"] = mapped_data.get("Transactions")
-                    st.session_state["cust_df"] = mapped_data.get("Customers")
-                    st.session_state["prod_df"] = mapped_data.get("Products")
-                    st.session_state["promo_df"] = mapped_data.get("Promotions")
-                    st.session_state["files_mapped"] = True
+                st.session_state["files_mapped"] = True
+                st.session_state["mapping_done_once"] = True   # 🔑 KEY FIX
 
-                st.success("✅ Mapping completed")
-                st.info("👉 You can now proceed to Analytics tabs")
+            st.success("✅ Mapping completed successfully")
+            st.info("👉 You can now proceed to Analytics tabs")
 
-                # ❌ NO RERUN HERE
+        # ✅ Keep user on mapping screen AFTER save
+        elif st.session_state.get("mapping_done_once", False):
 
-        else:
-            st.dataframe(
-                st.session_state["txns_df"].head() if st.session_state["txns_df"] is not None else "No Transactions",
-                width="stretch"
-            )
+            st.success("✅ Mapping already completed")
+
+            if st.session_state["txns_df"] is not None:
+                st.dataframe(
+                    st.session_state["txns_df"].head(),
+                    width="stretch"
+                )
 
     else:
         st.info("Upload files first")
