@@ -2,48 +2,62 @@ import streamlit as st
 import pandas as pd
 import json
 import plotly.express as px
+import hashlib
 from openai import OpenAI
 
-
-def run_business_analyst_tab(raw_dfs):
-
+# -------------------------
+# INIT
+# -------------------------
+def get_client():
     if "OPENAI_API_KEY" not in st.secrets:
-        st.error("OPENAI_API_KEY not found in Streamlit secrets")
+        st.error("OPENAI_API_KEY missing")
         st.stop()
-    
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    # -------------------------
-    # LLM CALL
-    # -------------------------
-    def ask_llm(prompt):
+    return OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-        try:
-            response = client.responses.create(
-                model="gpt-4.1-mini",
-                input=prompt,
-                temperature=0.2,
-                max_output_tokens=900
-            )
 
-            return response.output_text
+# -------------------------
+# UTILS
+# -------------------------
+def stable_key(*args):
+    """Generate deterministic unique key"""
+    raw = "_".join([str(a) for a in args])
+    return hashlib.md5(raw.encode()).hexdigest()
 
-        except Exception as e:
-            return f"❌ OpenAI Error: {e}"
 
-    # -------------------------
-    # INSIGHT GENERATION
-    # -------------------------
-    def get_insights_list(df):
+def df_hash(df):
+    """Lightweight dataframe fingerprint"""
+    return hashlib.md5(
+        pd.util.hash_pandas_object(df, index=True).values
+    ).hexdigest()
 
-        preview = df.head(15).to_string(index=False)
-        stats = df.describe(include="all").to_string()
-        columns = ", ".join(df.columns.tolist())
-        dtypes = df.dtypes.to_string()
 
-        prompt = f"""
+# -------------------------
+# LLM CALL (CACHED)
+# -------------------------
+@st.cache_data(show_spinner=False)
+def ask_llm_cached(prompt):
+    client = get_client()
+
+    try:
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=prompt,
+            temperature=0.2,
+            max_output_tokens=900
+        )
+        return response.output_text
+    except Exception as e:
+        return f"❌ OpenAI Error: {e}"
+
+
+# -------------------------
+# INSIGHTS (CACHED)
+# -------------------------
+@st.cache_data(show_spinner=True)
+def get_insights(df_hash_val, df_preview, df_stats, columns, dtypes):
+
+    prompt = f"""
 You are a senior business consultant.
-
-A company wants to improve profitability.
 
 Dataset columns:
 {columns}
@@ -52,215 +66,184 @@ Column types:
 {dtypes}
 
 Statistical summary:
-{stats}
+{df_stats}
 
 Sample data:
-{preview}
+{df_preview}
 
-Your job:
+Goal: Improve profitability
 
-1. Profit = Revenue - Cost
-2. Analyze revenue drivers
-3. Analyze cost drivers
-4. Identify root causes
-5. Suggest actions
-6. Estimate impact
-
-Return ONLY JSON.
-
-Format:
+Return ONLY JSON:
 
 [
 {{
-"decision":"short actionable insight title",
-"observation":"data observation with numbers",
+"decision":"short insight",
+"observation":"data-backed observation",
 "why_it_matters":"business reasoning",
-"action":"what company should do",
-"impact":"estimated profitability impact"
+"action":"recommended action",
+"impact":"estimated impact"
 }}
 ]
-
-Rules:
-- 3–5 insights
-- short sentences
-- include numbers where possible
-- focus on profitability improvement
 """
 
-        raw = ask_llm(prompt)
+    raw = ask_llm_cached(prompt)
 
-        try:
-            start = raw.find("[")
-            end = raw.rfind("]") + 1
-            raw_json = raw[start:end]
-            return json.loads(raw_json)
+    try:
+        start = raw.find("[")
+        end = raw.rfind("]") + 1
+        return json.loads(raw[start:end])
+    except:
+        return []
 
-        except Exception as e:
-            st.warning(f"⚠️ Failed to parse insights JSON: {e}")
-            return []
 
-    # -------------------------
-    # CHART SPEC GENERATION
-    # -------------------------
-    def get_chart_spec_from_insight(df, insight_text):
+# -------------------------
+# CHART SPEC (CACHED)
+# -------------------------
+@st.cache_data(show_spinner=False)
+def get_chart_spec(df_hash_val, insight_text, columns):
 
-        columns = ", ".join(df.columns.tolist())
-
-        prompt = f"""
+    prompt = f"""
 You are a data visualization expert.
 
-Dataset columns:
+Columns:
 {columns}
 
 Insight:
 "{insight_text}"
 
-Return ONLY JSON.
+Return ONLY JSON:
 
 {{
 "chart_type": "bar | line | scatter | pie",
-"x": "column name",
+"x": "column",
 "y": "column OR ['col1','col2']",
-"title": "chart title"
+"title": "title"
 }}
-
-Rules:
-- choose chart that best explains insight
-- prefer averages or ratios over totals when comparing groups
-- use only dataset columns
 """
 
-        raw = ask_llm(prompt)
+    raw = ask_llm_cached(prompt)
 
-        try:
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            raw_json = raw[start:end]
-            return json.loads(raw_json)
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        return json.loads(raw[start:end])
+    except:
+        return None
 
-        except Exception as e:
-            st.warning(f"⚠️ Failed to parse chart spec: {e}")
+
+# -------------------------
+# CHART GENERATION
+# -------------------------
+def generate_chart(df, spec):
+
+    try:
+        chart_type = spec["chart_type"].lower()
+        x = spec["x"]
+        y = spec["y"]
+        title = spec.get("title", "Chart")
+
+        if x not in df.columns:
             return None
 
-    # -------------------------
-    # CHART GENERATION
-    # -------------------------
-    def generate_chart(df, spec):
-
-        try:
-
-            chart_type = spec["chart_type"].lower()
-            x = spec["x"]
-            y = spec["y"]
-            title = spec.get("title", "Chart")
-
-            if x not in df.columns:
+        if isinstance(y, str):
+            if y not in df.columns:
                 return None
 
-            if isinstance(y, str):
+            d = df[[x, y]].dropna()
+            d = d.groupby(x)[y].mean().reset_index()
 
-                if y not in df.columns:
-                    return None
-
-                df_chart = df[[x, y]].dropna()
-                df_chart = df_chart.groupby(x)[y].mean().reset_index()
-
-                if chart_type == "bar":
-                    fig = px.bar(df_chart, x=x, y=y, title=title)
-
-                elif chart_type == "line":
-                    fig = px.line(df_chart, x=x, y=y, title=title)
-
-                elif chart_type == "scatter":
-                    fig = px.scatter(df_chart, x=x, y=y, title=title)
-
-                elif chart_type == "pie":
-                    fig = px.pie(df_chart, names=x, values=y, title=title)
-
-                else:
-                    return None
-
+            if chart_type == "bar":
+                fig = px.bar(d, x=x, y=y, title=title)
+            elif chart_type == "line":
+                fig = px.line(d, x=x, y=y, title=title)
+            elif chart_type == "scatter":
+                fig = px.scatter(d, x=x, y=y, title=title)
+            elif chart_type == "pie":
+                fig = px.pie(d, names=x, values=y, title=title)
             else:
+                return None
 
-                df_chart = df[[x] + y].dropna()
+        else:
+            d = df[[x] + y].dropna()
+            d = d.melt(id_vars=x, var_name="Series", value_name="Value")
 
-                df_melt = df_chart.melt(
-                    id_vars=x,
-                    value_vars=y,
-                    var_name="Series",
-                    value_name="Value"
-                )
+            if chart_type == "bar":
+                fig = px.bar(d, x=x, y="Value", color="Series", title=title)
+            elif chart_type == "line":
+                fig = px.line(d, x=x, y="Value", color="Series", title=title)
+            elif chart_type == "scatter":
+                fig = px.scatter(d, x=x, y="Value", color="Series", title=title)
+            else:
+                return None
 
-                if chart_type == "bar":
-                    fig = px.bar(df_melt, x=x, y="Value", color="Series", title=title)
+        fig.update_layout(
+            margin=dict(l=40, r=40, t=60, b=100),
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
 
-                elif chart_type == "line":
-                    fig = px.line(df_melt, x=x, y="Value", color="Series", title=title)
+        return fig
 
-                elif chart_type == "scatter":
-                    fig = px.scatter(df_melt, x=x, y="Value", color="Series", title=title)
+    except Exception:
+        return None
 
-                else:
-                    return None
 
-            fig.update_layout(
-                xaxis_tickangle=-45,
-                margin=dict(l=40, r=40, t=60, b=120),
-                plot_bgcolor="rgba(0,0,0,0)"
-            )
+# -------------------------
+# MAIN UI
+# -------------------------
+def run_business_analyst_tab(raw_dfs):
 
-            return fig
-
-        except Exception as e:
-            st.error(f"Chart error: {e}")
-            return None
-
-    # -------------------------
-    # STREAMLIT UI
-    # -------------------------
     st.title("🤖 AI Business Analyst")
 
     for filename, df in raw_dfs.items():
 
         if not isinstance(df, pd.DataFrame):
-            st.info(f"⏭️ Skipping non-DataFrame entry: {filename}")
             continue
 
-        st.header(f"📄 Analysis for: {filename}")
+        st.header(f"📄 {filename}")
 
-        st.subheader("🔍 Data Preview")
         st.dataframe(df.head(20))
 
-        st.subheader("📈 AI Insights")
+        # ---- PREP ----
+        df_hash_val = df_hash(df)
 
-        with st.spinner("Analyzing dataset..."):
-            insights = get_insights_list(df)
+        preview = df.head(15).to_string(index=False)
+        stats = df.describe(include="all").to_string()
+        columns = ", ".join(df.columns)
+        dtypes = df.dtypes.to_string()
+
+        # ---- INSIGHTS ----
+        insights = get_insights(
+            df_hash_val, preview, stats, columns, dtypes
+        )
 
         if not insights:
-            st.warning("⚠️ No insights generated.")
+            st.warning("No insights generated")
             continue
 
+        # ---- DISPLAY ----
         for i, ins in enumerate(insights):
 
-            st.markdown(f"### 🔎 Insight {i+1}: {ins.get('decision')}")
-            st.markdown(f"- **Observation:** {ins.get('observation')}")
-            st.markdown(f"- **Why it matters:** {ins.get('why_it_matters')}")
-            st.markdown(f"- **Action:** {ins.get('action')}")
-            st.markdown(f"- **Impact:** {ins.get('impact')}")
+            st.markdown(f"### 🔎 {ins.get('decision')}")
+            st.markdown(f"**Observation:** {ins.get('observation')}")
+            st.markdown(f"**Why:** {ins.get('why_it_matters')}")
+            st.markdown(f"**Action:** {ins.get('action')}")
+            st.markdown(f"**Impact:** {ins.get('impact')}")
 
-            with st.spinner("Generating visualization..."):
+            # ---- CHART ----
+            spec = get_chart_spec(df_hash_val, ins.get("decision"), columns)
 
-                spec = get_chart_spec_from_insight(df, ins.get("decision"))
+            if spec:
+                fig = generate_chart(df, spec)
 
-                if spec:
+                if fig:
+                    key = stable_key(filename, i, ins.get("decision"))
 
-                    fig = generate_chart(df, spec)
-
-                    if fig:
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    else:
-                        st.warning("⚠️ Could not generate chart.")
-
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                        key=key
+                    )
                 else:
-                    st.warning("⚠️ No chart suggested.")
+                    st.warning("Chart generation failed")
+            else:
+                st.warning("No chart spec")
