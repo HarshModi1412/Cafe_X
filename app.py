@@ -3,10 +3,6 @@ import pandas as pd
 
 # Modules
 from modules.rfm import calculate_rfm, get_campaign_targets, generate_personal_offer
-from modules.profiler import generate_customer_profile
-from modules.customer_journey import map_customer_journey_and_affinity, generate_behavioral_recommendation_with_impact
-from modules.discount import generate_discount_insights, assign_offer_codes
-from modules.personalization import compute_customer_preferences
 from modules.sales_analytics import render_sales_analytics, render_subcategory_trends, generate_sales_insights
 from modules.mapper import classify_and_extract_data
 from modules.smart_insights import generate_dynamic_insights
@@ -14,31 +10,24 @@ import BA
 import KPI_analyst
 import chatbot2
 
-# ---------------- UI CLEANUP ----------------
+# ---------------- CONFIG ----------------
 st.set_page_config(page_title="Cafe_X Dashboard", page_icon="📊", layout="wide")
-
-st.markdown("""
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<h1 style='color:white;'>Cafe_X</h1>
-<hr>
-""", unsafe_allow_html=True)
 
 # ---------------- SESSION STATE ----------------
 defaults = {
     "uploaded_files": None,
+    "last_uploaded_files": None,
+    "raw_dfs": {},
     "files_mapped": False,
     "txns_df": None,
     "cust_df": None,
     "prod_df": None,
     "promo_df": None,
+    "start_sales_analysis": False,
+    "start_subcat_analysis": False,
+    "run_rfm": False
 }
+
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -52,33 +41,37 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
-# ---------------- FILE LOADING ----------------
-raw_dfs = {}
-
+# ---------------- FILE UPLOAD (FIXED) ----------------
 if uploaded_files:
-    st.session_state["uploaded_files"] = uploaded_files
 
-    with st.spinner("📤 Uploading and processing files..."):
-        progress = st.progress(0)
+    # Trigger ONLY when files change
+    if st.session_state["last_uploaded_files"] != uploaded_files:
 
-        for i, file in enumerate(uploaded_files):
-            ext = file.name.split('.')[-1].lower()
+        st.session_state["last_uploaded_files"] = uploaded_files
 
-            try:
-                if ext == "csv":
-                    df = pd.read_csv(file)
-                else:
-                    df = pd.read_excel(file)
+        with st.spinner("📤 Uploading files..."):
+            raw_dfs = {}
 
-                raw_dfs[f"df_{i+1}"] = df
-                raw_dfs[f"df_{i+1}_name"] = file.name
+            for i, file in enumerate(uploaded_files):
+                ext = file.name.split('.')[-1].lower()
 
-            except Exception as e:
-                st.error(f"Error loading {file.name}: {e}")
+                try:
+                    if ext == "csv":
+                        df = pd.read_csv(file)
+                    else:
+                        df = pd.read_excel(file)
 
-            progress.progress((i + 1) / len(uploaded_files))
+                    raw_dfs[f"df_{i+1}"] = df
+                    raw_dfs[f"df_{i+1}_name"] = file.name
 
-    st.success("✅ Files uploaded successfully!")
+                except Exception as e:
+                    st.error(f"Error loading {file.name}: {e}")
+
+        st.session_state["raw_dfs"] = raw_dfs
+        st.success("✅ Files uploaded")
+
+# reuse stored data (no spinner)
+raw_dfs = st.session_state.get("raw_dfs", {})
 
 # ---------------- STATUS ----------------
 if not uploaded_files and not st.session_state["files_mapped"]:
@@ -86,9 +79,9 @@ if not uploaded_files and not st.session_state["files_mapped"]:
 elif uploaded_files and not st.session_state["files_mapped"]:
     st.warning("📤 Files uploaded. Go to File Mapping tab")
 elif st.session_state["files_mapped"]:
-    st.success("✅ Files mapped. Ready to use")
+    st.success("✅ Files mapped. Ready")
 
-# ---------------- LOAD SESSION DATA ----------------
+# ---------------- DATA ----------------
 txns_df = st.session_state["txns_df"]
 cust_df = st.session_state["cust_df"]
 prod_df = st.session_state["prod_df"]
@@ -118,18 +111,18 @@ with tabs[1]:
 
         if not st.session_state["files_mapped"]:
 
-            with st.spinner("🧠 Mapping columns..."):
-                mapped_data = classify_and_extract_data(uploaded_files)
+            mapped_data = classify_and_extract_data(uploaded_files)
 
             if mapped_data:
                 with st.spinner("💾 Saving mapping..."):
+
                     st.session_state["txns_df"] = mapped_data.get("Transactions")
                     st.session_state["cust_df"] = mapped_data.get("Customers")
                     st.session_state["prod_df"] = mapped_data.get("Products")
                     st.session_state["promo_df"] = mapped_data.get("Promotions")
                     st.session_state["files_mapped"] = True
 
-                st.success("✅ Mapping complete!")
+                st.success("✅ Mapping completed")
                 st.rerun()
 
         else:
@@ -143,28 +136,44 @@ with tabs[2]:
     if txns_df is None:
         st.warning("Upload Transactions")
     else:
-        if st.button("▶ Start Analysis"):
-            with st.spinner("Analyzing..."):
-                render_sales_analytics(txns_df)
+        if not st.session_state["start_sales_analysis"]:
+            if st.button("▶️ Start Sales Analytics"):
+                with st.spinner("📊 Doing analysis..."):
+                    st.session_state["start_sales_analysis"] = True
+                st.rerun()
+        else:
+            render_sales_analytics(txns_df)
+            insights = generate_sales_insights(txns_df)
+            generate_dynamic_insights(insights)
 
 # ---------------- TAB 4 ----------------
 with tabs[3]:
     if txns_df is None:
         st.warning("Upload Transactions")
     else:
-        if st.button("▶ Run Drilldown"):
-            with st.spinner("Processing..."):
-                render_subcategory_trends(txns_df)
+        if not st.session_state["start_subcat_analysis"]:
+            if st.button("▶️ Start Sub-Category Analysis"):
+                with st.spinner("📊 Doing analysis..."):
+                    st.session_state["start_subcat_analysis"] = True
+                st.rerun()
+        else:
+            render_subcategory_trends(txns_df)
 
 # ---------------- TAB 5 ----------------
 with tabs[4]:
     if txns_df is None:
         st.warning("Upload Transactions")
     else:
-        if st.button("▶ Run RFM"):
-            with st.spinner("Running RFM..."):
-                rfm = calculate_rfm(txns_df)
-                st.dataframe(rfm.head())
+        if not st.session_state["run_rfm"]:
+            if st.button("▶️ Run RFM Analysis"):
+                with st.spinner("📊 Doing analysis..."):
+                    st.session_state["run_rfm"] = True
+                st.rerun()
+        else:
+            with st.spinner("📊 Doing analysis..."):
+                rfm_df = calculate_rfm(txns_df)
+
+            st.dataframe(rfm_df.head())
 
 # ---------------- TAB 6 ----------------
 with tabs[5]:
