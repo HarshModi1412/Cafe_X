@@ -13,6 +13,20 @@ import chatbot2
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="Cafe_X Dashboard", page_icon="📊", layout="wide")
 
+# ---------------- UI CLEAN ----------------
+st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<h1 style='margin-bottom:0;'>Cafe_X</h1>
+<hr style='margin-top:0;'>
+""", unsafe_allow_html=True)
+
 # ---------------- SESSION STATE ----------------
 defaults = {
     "uploaded_files": None,
@@ -41,10 +55,9 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
-# ---------------- FILE UPLOAD (FIXED) ----------------
+# ---------------- FILE UPLOAD ----------------
 if uploaded_files:
 
-    # Trigger ONLY when files change
     if st.session_state["last_uploaded_files"] != uploaded_files:
 
         st.session_state["last_uploaded_files"] = uploaded_files
@@ -56,10 +69,7 @@ if uploaded_files:
                 ext = file.name.split('.')[-1].lower()
 
                 try:
-                    if ext == "csv":
-                        df = pd.read_csv(file)
-                    else:
-                        df = pd.read_excel(file)
+                    df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
 
                     raw_dfs[f"df_{i+1}"] = df
                     raw_dfs[f"df_{i+1}_name"] = file.name
@@ -70,7 +80,6 @@ if uploaded_files:
         st.session_state["raw_dfs"] = raw_dfs
         st.success("✅ Files uploaded")
 
-# reuse stored data (no spinner)
 raw_dfs = st.session_state.get("raw_dfs", {})
 
 # ---------------- STATUS ----------------
@@ -103,7 +112,7 @@ with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# ---------------- TAB 2 (MAPPING) ----------------
+# ---------------- TAB 2 ----------------
 with tabs[1]:
     st.subheader("File Mapping")
 
@@ -115,7 +124,6 @@ with tabs[1]:
 
             if mapped_data:
                 with st.spinner("💾 Saving mapping..."):
-
                     st.session_state["txns_df"] = mapped_data.get("Transactions")
                     st.session_state["cust_df"] = mapped_data.get("Customers")
                     st.session_state["prod_df"] = mapped_data.get("Products")
@@ -126,7 +134,7 @@ with tabs[1]:
                 st.rerun()
 
         else:
-            st.dataframe(txns_df.head() if txns_df is not None else "No Transactions")
+            st.dataframe(txns_df.head() if txns_df is not None else "No Transactions", width="stretch")
 
     else:
         st.info("Upload files first")
@@ -173,7 +181,7 @@ with tabs[4]:
             with st.spinner("📊 Doing analysis..."):
                 rfm_df = calculate_rfm(txns_df)
 
-            st.dataframe(rfm_df.head())
+            st.dataframe(rfm_df.head(), width="stretch")
 
 # ---------------- TAB 6 ----------------
 with tabs[5]:
