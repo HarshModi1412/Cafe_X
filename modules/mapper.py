@@ -122,9 +122,6 @@ def classify_and_extract_data(uploaded_files):
 
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    if "mapping_store" not in st.session_state:
-        st.session_state.mapping_store = {}
-
     all_cols = sorted({
         col for _, df in file_dfs for col in df.columns
     })
@@ -142,26 +139,19 @@ def classify_and_extract_data(uploaded_files):
 
                 key = f"{role}_{field}"
 
-                default_val = "--"
-                if field in auto_mapping:
-                    default_val = auto_mapping[field][1]
+                # default value setup (only once)
+                if key not in st.session_state:
+                    default_val = "--"
+                    if field in auto_mapping:
+                        default_val = auto_mapping[field][1]
+                    st.session_state[key] = default_val
 
-                if key not in st.session_state.mapping_store:
-                    st.session_state.mapping_store[key] = default_val
-
-                current_val = st.session_state.mapping_store[key]
-
-                selection = st.selectbox(
+                st.selectbox(
                     f"{field}",
                     ["--"] + all_cols,
-                    index=(["--"] + all_cols).index(current_val)
-                    if current_val in all_cols else 0,
                     key=key
                 )
 
-                st.session_state.mapping_store[key] = selection
-
-        # ONLY trigger point
         submitted = st.form_submit_button("✅ Confirm Mapping")
 
     # ---------------- AFTER SUBMIT ----------------
@@ -176,7 +166,7 @@ def classify_and_extract_data(uploaded_files):
                 role_mapping = {}
 
                 for field in REQUIRED_FIELDS[role]:
-                    sel = st.session_state.mapping_store.get(f"{role}_{field}")
+                    sel = st.session_state.get(f"{role}_{field}")
 
                     if sel and sel != "--":
                         for fname, df in file_dfs:
