@@ -40,7 +40,8 @@ defaults = {
     "start_sales_analysis": False,
     "start_subcat_analysis": False,
     "run_rfm": False,
-    "mapping_submitted": False   # 🔑 ONLY FLAG NEEDED
+    "mapping_submitted": False,
+    "mapped_data_cache": None# 🔑 ONLY FLAG NEEDED
 }
 
 for k, v in defaults.items():
@@ -101,26 +102,31 @@ with tabs[1]:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-        # 🔑 Persist click
-        if confirmed:
+        # 🔑 STEP 1: persist mapping result IMMEDIATELY
+        if confirmed and mapped_data is not None:
+            st.session_state["mapped_data_cache"] = mapped_data
             st.session_state["mapping_submitted"] = True
 
-        # 🔑 Execute mapping ONCE
-        if st.session_state["mapping_submitted"]:
+        # 🔑 STEP 2: use cached data (NOT fresh mapped_data)
+        if st.session_state.get("mapping_submitted", False):
 
-            with st.spinner("💾 Saving mapping..."):
+            cached_data = st.session_state.get("mapped_data_cache")
 
-                st.session_state["txns_df"] = mapped_data.get("Transactions")
-                st.session_state["cust_df"] = mapped_data.get("Customers")
-                st.session_state["prod_df"] = mapped_data.get("Products")
-                st.session_state["promo_df"] = mapped_data.get("Promotions")
+            if cached_data:
 
-                st.session_state["files_mapped"] = True
+                with st.spinner("💾 Saving mapping..."):
 
-            st.session_state["mapping_submitted"] = False
+                    st.session_state["txns_df"] = cached_data.get("Transactions")
+                    st.session_state["cust_df"] = cached_data.get("Customers")
+                    st.session_state["prod_df"] = cached_data.get("Products")
+                    st.session_state["promo_df"] = cached_data.get("Promotions")
 
-            st.success("✅ Mapping completed successfully")
-            st.info("👉 You can now proceed to Analytics tabs")
+                    st.session_state["files_mapped"] = True
+
+                st.session_state["mapping_submitted"] = False
+
+                st.success("✅ Mapping completed successfully")
+                st.info("👉 You can now proceed to Analytics tabs")
 
         elif st.session_state.get("files_mapped", False):
 
