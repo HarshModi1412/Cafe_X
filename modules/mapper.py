@@ -97,21 +97,35 @@ def auto_map_fields(role, inventory):
     return mapping
 
 
-def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
-    file_lookup = {name: df for name, df in file_dfs}
-
+def build_dataframe_from_mapping(mapping, required_fields):
+    # Step 1: Pull in each mapped series
     columns = {}
     max_len = 0
-
-    for field, (fname, col) in mapping.items():
-        s = file_lookup[fname][col].reset_index(drop=True)
+    for field, (_, _, series) in mapping.items():
+        s = series.reset_index(drop=True)
         columns[field] = s
         max_len = max(max_len, len(s))
 
-    df = pd.DataFrame({
-        field: columns.get(field, pd.Series([pd.NA] * max_len))
-        for field in required_fields
-    })
+    # Step 2: Build DataFrame skeleton
+    df = pd.DataFrame({field: columns.get(field, pd.Series([pd.NA] * max_len))
+                       for field in required_fields})
+
+    # Step 3: If Invoice Total missing or all null, compute from Unit Price & Quantity
+    if "Invoice Total" in required_fields:
+        if df["Invoice Total"].isnull().all() and {"Unit Price", "Quantity"}.issubset(df):
+            df["Invoice Total"] = (
+                pd.to_numeric(df["Unit Price"], errors="coerce") *
+                pd.to_numeric(df["Quantity"], errors="coerce")
+            )
+
+    # Step 4: Compute Production Cost if missing but Unit Cost provided
+    if "Production Cost" in required_fields:
+        prod_cost_null = df["Production Cost"].isnull().all() if "Production Cost" in df else True
+        if prod_cost_null and "Unit Cost" in df and "Quantity" in df:
+            df["Production Cost"] = (
+                pd.to_numeric(df["Unit Cost"], errors="coerce") *
+                pd.to_numeric(df["Quantity"], errors="coerce")
+            )
 
     return df
 
