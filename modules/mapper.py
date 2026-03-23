@@ -122,7 +122,6 @@ def classify_and_extract_data(uploaded_files):
 
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    # ✅ Persist mapping state
     if "mapping_store" not in st.session_state:
         st.session_state["mapping_store"] = {}
 
@@ -130,7 +129,7 @@ def classify_and_extract_data(uploaded_files):
         col for _, df in file_dfs for col in df.columns
     })
 
-    # ---------------- UI ----------------
+    # ----------- UI -----------
     for role in REQUIRED_FIELDS:
 
         st.markdown(f"### 🗂 Mapping for `{role}`")
@@ -141,7 +140,6 @@ def classify_and_extract_data(uploaded_files):
 
             key = f"{role}_{field}"
 
-            # Pre-fill from auto-mapping
             default_val = "--"
             if field in auto_mapping:
                 default_val = auto_mapping[field][1]
@@ -158,11 +156,12 @@ def classify_and_extract_data(uploaded_files):
                 key=key
             )
 
-            # Save selection (but DO NOT trigger final mapping)
             st.session_state["mapping_store"][key] = selection
 
-    # ---------------- CONFIRM BUTTON ----------------
-    if st.button("✅ Confirm Mapping"):
+    # ----------- CONFIRM BUTTON -----------
+    confirmed = st.button("✅ Confirm Mapping")
+
+    if confirmed:
 
         final_data = {}
 
@@ -187,6 +186,6 @@ def classify_and_extract_data(uploaded_files):
                     list(REQUIRED_FIELDS[role].keys())
                 )
 
-        return final_data
+        return final_data, True
 
-    return None
+    return None, False
