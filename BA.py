@@ -1,247 +1,266 @@
 import streamlit as st
 import pandas as pd
+import json
+import plotly.express as px
+from openai import OpenAI
 
-# Module Imports
-from modules.rfm import calculate_rfm, get_campaign_targets, generate_personal_offer
-from modules.profiler import generate_customer_profile
-from modules.customer_journey import map_customer_journey_and_affinity, generate_behavioral_recommendation_with_impact
-from modules.discount import generate_discount_insights, assign_offer_codes
-from modules.personalization import compute_customer_preferences
-from modules.sales_analytics import render_sales_analytics, render_subcategory_trends, generate_sales_insights
-from modules.mapper import classify_and_extract_data
-from modules.smart_insights import generate_dynamic_insights
-import BA
-import KPI_analyst
-import chatbot2
 
-# --- UI Cleanup ---
-hide_ui = """
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    a[href*="github.com"] {visibility: hidden;}
-    .css-1lsmgbg.e1fqkh3o5 {display: none;}
-    </style>
-"""
-st.markdown(hide_ui, unsafe_allow_html=True)
+def run_business_analyst_tab(raw_dfs):
 
-# --- Page Config ---
-st.set_page_config(
-    page_title="Cafe_X Dashboard",
-    page_icon="📊",
-    layout="wide",
-    menu_items={
-        "Get Help": None,
-        "Report a bug": None,
-        "About": None
-    }
-)
-
-# --- Branding ---
-st.markdown("""
-<style>
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-    }
-</style>
-<h1 style='text-align: left; color: #FFFFFF; font-size: 3em; margin: 0;'>Cafe_X</h1>
-<hr style='margin: 0.5rem auto 1rem auto; border: 1px solid #ccc; width: 100%;' />
-""", unsafe_allow_html=True)
-
-# --- Sidebar Upload ---
-st.sidebar.title("📁 Upload Your CSV Files")
-uploaded_files = st.sidebar.file_uploader(
-    "Upload 1–4 CSV or Excel files",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True
-)
-
-# --- Session State Setup ---
-for key in ['uploaded_files', 'files_mapped', 'txns_df', 'cust_df', 'prod_df', 'promo_df']:
-    if key not in st.session_state:
-        st.session_state[key] = None if key.endswith('_df') else False
-
-# --- Store Raw Uploaded Files ---
-raw_dfs = {}  # Will hold raw files like df_1, df_2, etc.
-if uploaded_files:
-    st.session_state["uploaded_files"] = uploaded_files
-    for idx, file in enumerate(uploaded_files):
-        ext = file.name.split('.')[-1].lower()
-        if ext == "csv":
-            df = pd.read_csv(file)
-        else:
-            df = pd.read_excel(file)
-        raw_dfs[f'df_{idx+1}'] = df
-        raw_dfs[f'df_{idx+1}_name'] = file.name
-
-# --- Mapping Feedback ---
-if not uploaded_files and not st.session_state["files_mapped"]:
-    st.info("👈 Please upload your CSV files from the sidebar to get started.")
-elif uploaded_files and not st.session_state["files_mapped"]:
-    st.warning("📤 Files uploaded. Go to the **🗂️ File Mapping** tab to proceed.")
-elif st.session_state["files_mapped"]:
-    st.success("✅ Files loaded and mapped. You're ready to explore insights!")
-
-# --- Load Mapped Data ---
-txns_df = st.session_state.get("txns_df")
-cust_df = st.session_state.get("cust_df")
-prod_df = st.session_state.get("prod_df")
-promo_df = st.session_state.get("promo_df")
-
-# --- Tabs ---
-tabs = st.tabs([
-    "📘 Instructions", 
-    "🗂️ File Mapping",
-    "📊 Sales Analytics", 
-    "🔍 Sub-Category Drilldown Analysis",                               
-    "📊 RFM Segmentation", 
-    "🤖 Business Analyst AI (BETA)",
-    "🤖 Chatbot"
-])     
-
-# TAB 1: Instructions
-with tabs[0]:
-    st.subheader("📘 Instructions & User Guide")
-    st.markdown("""
-    Welcome to the **Retail Analytics Dashboard**. Please follow the steps below:
-    - 📁 Upload your data files from the **sidebar**
-    - Navigate through tabs to run analysis
-    - Use buttons to trigger specific modules
-    - Download results wherever applicable
-    """)
-
-# TAB 2: File Mapping
-with tabs[1]:
-    st.subheader("🗂️ File Mapping & Confirmation")
-
-    if uploaded_files:
-        st.markdown("### 🧩 Column Mapping for Each File")
-
-        if not st.session_state.get("files_mapped"):
-            mapped_data = classify_and_extract_data(uploaded_files)
-
-            if mapped_data:
-                st.session_state['txns_df'] = mapped_data.get("Transactions")
-                st.session_state['cust_df'] = mapped_data.get("Customers")
-                st.session_state['prod_df'] = mapped_data.get("Products")
-                st.session_state['promo_df'] = mapped_data.get("Promotions")
-                st.session_state["files_mapped"] = True
-                st.rerun()
-        else:
-            with st.expander("📄 Transactions Sample"):
-                st.dataframe(txns_df.head(10) if txns_df is not None else "⚠️ Transactions data not mapped.")
-            with st.expander("📄 Customers Sample"):
-                st.dataframe(cust_df.head(10) if cust_df is not None else "⚠️ Customers data not mapped.")
-            with st.expander("📄 Products Sample"):
-                st.dataframe(prod_df.head(10) if prod_df is not None else "⚠️ Products data not mapped.")
-            with st.expander("📄 Promotions Sample"):
-                st.dataframe(promo_df.head(10) if promo_df is not None else "⚠️ Promotions data not mapped.")
-
-    else:
-        st.info("👈 Please upload your CSV files from the sidebar to start mapping.")
-
-# TAB 3: Sales Analytics
-with tabs[2]:
-    st.subheader("📊 Sales Analytics Overview")
+    if "OPENAI_API_KEY" not in st.secrets:
+        st.error("OPENAI_API_KEY not found in Streamlit secrets")
+        st.stop()
     
-    if txns_df is None:
-        st.warning("📂 Please upload the Transactions CSV file to begin.")
-    else:
-        if "start_sales_analysis" not in st.session_state:
-            st.session_state.start_sales_analysis = False
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    # -------------------------
+    # LLM CALL
+    # -------------------------
+    def ask_llm(prompt):
 
-        if not st.session_state.start_sales_analysis:
-            if st.button("▶️ Start Sales Analytics"):
-                st.session_state.start_sales_analysis = True
-                st.rerun()
-        else:
-            render_sales_analytics(txns_df)
-            st.markdown("---")
-            st.subheader("💡 Smart Narrative & Dynamic Insights")
-            insights = generate_sales_insights(txns_df)
-            generate_dynamic_insights(insights)
+        try:
+            response = client.responses.create(
+                model="gpt-4.1-mini",
+                input=prompt,
+                temperature=0.2,
+                max_output_tokens=900
+            )
 
-# TAB 4: Sub-Category Drilldown
-with tabs[3]:
-    st.subheader("🔍 Sub-Category Drilldown Analysis")
+            return response.output_text
 
-    if txns_df is None:
-        st.warning("📂 Please upload your Transactions file to proceed.")
-    else:
-        if "start_subcat_analysis" not in st.session_state:
-            st.session_state.start_subcat_analysis = False
+        except Exception as e:
+            return f"❌ OpenAI Error: {e}"
 
-        if st.session_state.start_subcat_analysis:
-            render_subcategory_trends(txns_df)
-        else:
-            st.info("Click the button below to begin analyzing sub-category trends.")
-            if st.button("▶️ Start Sub-Category Analysis"):
-                st.session_state.start_subcat_analysis = True
-                st.rerun()
+    # -------------------------
+    # INSIGHT GENERATION
+    # -------------------------
+    def get_insights_list(df):
 
-# TAB 5: RFM Segmentation
-with tabs[4]:
-    st.subheader("🚦 RFM Segmentation Analysis")
-    if txns_df is None:
-        st.warning("⚠️ Please upload the Transactions CSV file to proceed.")
-    else:
-        if "run_rfm" not in st.session_state:
-            st.session_state.run_rfm = False
+        preview = df.head(15).to_string(index=False)
+        stats = df.describe(include="all").to_string()
+        columns = ", ".join(df.columns.tolist())
+        dtypes = df.dtypes.to_string()
 
-        if not st.session_state.run_rfm:
-            if st.button("▶️ Run RFM Analysis"):
-                st.session_state.run_rfm = True
-                st.rerun()
+        prompt = f"""
+You are a senior business consultant.
 
-        if st.session_state.run_rfm:
-            with st.spinner("Running RFM segmentation..."):
-                rfm_df = calculate_rfm(txns_df)
-                st.session_state['rfm_df'] = rfm_df
-            st.success("✅ RFM Analysis Completed!")
-            st.dataframe(rfm_df.head(10), use_container_width=True)
-            st.download_button("📥 Download RFM Output", rfm_df.to_csv(index=False), "rfm_output.csv")
+A company wants to improve profitability.
 
-            if st.button("🚀 Get Campaign Target List"):
-                campaign_df = get_campaign_targets(rfm_df)
-                st.session_state['campaign_df'] = campaign_df
-                st.success(f"🎯 Found {len(campaign_df)} campaign-ready customers.")
-                st.dataframe(campaign_df.head(10), use_container_width=True)
-                st.download_button("📥 Download Campaign Target List", campaign_df.to_csv(index=False), "campaign_targets.csv")
+Dataset columns:
+{columns}
 
-            if st.button("💬 Send Personalized Message"):
-                campaign_df = st.session_state.get('campaign_df')
-                if campaign_df is None or campaign_df.empty:
-                    st.warning("⚠️ No campaign targets found. Please run RFM and generate the campaign list first.")
+Column types:
+{dtypes}
+
+Statistical summary:
+{stats}
+
+Sample data:
+{preview}
+
+Your job:
+
+1. Profit = Revenue - Cost
+2. Analyze revenue drivers
+3. Analyze cost drivers
+4. Identify root causes
+5. Suggest actions
+6. Estimate impact
+
+Return ONLY JSON.
+
+Format:
+
+[
+{{
+"decision":"short actionable insight title",
+"observation":"data observation with numbers",
+"why_it_matters":"business reasoning",
+"action":"what company should do",
+"impact":"estimated profitability impact"
+}}
+]
+
+Rules:
+- 3–5 insights
+- short sentences
+- include numbers where possible
+- focus on profitability improvement
+"""
+
+        raw = ask_llm(prompt)
+
+        try:
+            start = raw.find("[")
+            end = raw.rfind("]") + 1
+            raw_json = raw[start:end]
+            return json.loads(raw_json)
+
+        except Exception as e:
+            st.warning(f"⚠️ Failed to parse insights JSON: {e}")
+            return []
+
+    # -------------------------
+    # CHART SPEC GENERATION
+    # -------------------------
+    def get_chart_spec_from_insight(df, insight_text):
+
+        columns = ", ".join(df.columns.tolist())
+
+        prompt = f"""
+You are a data visualization expert.
+
+Dataset columns:
+{columns}
+
+Insight:
+"{insight_text}"
+
+Return ONLY JSON.
+
+{{
+"chart_type": "bar | line | scatter | pie",
+"x": "column name",
+"y": "column OR ['col1','col2']",
+"title": "chart title"
+}}
+
+Rules:
+- choose chart that best explains insight
+- prefer averages or ratios over totals when comparing groups
+- use only dataset columns
+"""
+
+        raw = ask_llm(prompt)
+
+        try:
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            raw_json = raw[start:end]
+            return json.loads(raw_json)
+
+        except Exception as e:
+            st.warning(f"⚠️ Failed to parse chart spec: {e}")
+            return None
+
+    # -------------------------
+    # CHART GENERATION
+    # -------------------------
+    def generate_chart(df, spec):
+
+        try:
+
+            chart_type = spec["chart_type"].lower()
+            x = spec["x"]
+            y = spec["y"]
+            title = spec.get("title", "Chart")
+
+            if x not in df.columns:
+                return None
+
+            if isinstance(y, str):
+
+                if y not in df.columns:
+                    return None
+
+                df_chart = df[[x, y]].dropna()
+                df_chart = df_chart.groupby(x)[y].mean().reset_index()
+
+                if chart_type == "bar":
+                    fig = px.bar(df_chart, x=x, y=y, title=title)
+
+                elif chart_type == "line":
+                    fig = px.line(df_chart, x=x, y=y, title=title)
+
+                elif chart_type == "scatter":
+                    fig = px.scatter(df_chart, x=x, y=y, title=title)
+
+                elif chart_type == "pie":
+                    fig = px.pie(df_chart, names=x, values=y, title=title)
+
                 else:
-                    message = generate_personal_offer(txns_df, cust_df)
-                    if "No eligible customers" in message:
-                        st.warning(message)
+                    return None
+
+            else:
+
+                df_chart = df[[x] + y].dropna()
+
+                df_melt = df_chart.melt(
+                    id_vars=x,
+                    value_vars=y,
+                    var_name="Series",
+                    value_name="Value"
+                )
+
+                if chart_type == "bar":
+                    fig = px.bar(df_melt, x=x, y="Value", color="Series", title=title)
+
+                elif chart_type == "line":
+                    fig = px.line(df_melt, x=x, y="Value", color="Series", title=title)
+
+                elif chart_type == "scatter":
+                    fig = px.scatter(df_melt, x=x, y="Value", color="Series", title=title)
+
+                else:
+                    return None
+
+            fig.update_layout(
+                xaxis_tickangle=-45,
+                margin=dict(l=40, r=40, t=60, b=120),
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+
+            return fig
+
+        except Exception as e:
+            st.error(f"Chart error: {e}")
+            return None
+
+    # -------------------------
+    # STREAMLIT UI
+    # -------------------------
+    st.title("🤖 AI Business Analyst")
+
+    for filename, df in raw_dfs.items():
+
+        if not isinstance(df, pd.DataFrame):
+            st.info(f"⏭️ Skipping non-DataFrame entry: {filename}")
+            continue
+
+        st.header(f"📄 Analysis for: {filename}")
+
+        st.subheader("🔍 Data Preview")
+        st.dataframe(df.head(20))
+
+        st.subheader("📈 AI Insights")
+
+        with st.spinner("Analyzing dataset..."):
+            insights = get_insights_list(df)
+
+        if not insights:
+            st.warning("⚠️ No insights generated.")
+            continue
+
+        for i, ins in enumerate(insights):
+
+            st.markdown(f"### 🔎 Insight {i+1}: {ins.get('decision')}")
+            st.markdown(f"- **Observation:** {ins.get('observation')}")
+            st.markdown(f"- **Why it matters:** {ins.get('why_it_matters')}")
+            st.markdown(f"- **Action:** {ins.get('action')}")
+            st.markdown(f"- **Impact:** {ins.get('impact')}")
+
+            with st.spinner("Generating visualization..."):
+
+                spec = get_chart_spec_from_insight(df, ins.get("decision"))
+
+                if spec:
+
+                    fig = generate_chart(df, spec)
+
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+
                     else:
-                        st.success("📨 Message Generated:")
-                        st.markdown(message)
+                        st.warning("⚠️ Could not generate chart.")
 
-# TAB 6: Business Analyst + KPI Analyst
-with tabs[5]:
-    st.subheader("🧠 Business Analyst AI + KPI Analyst")
-
-    if not raw_dfs:
-        st.warning("📂 Please upload at least one raw CSV/Excel file.")
-    else:
-        BA.run_business_analyst_tab(raw_dfs)
-        st.markdown("---")
-        KPI_analyst.run_kpi_analyst(raw_dfs)
-
-# TAB 7: Chatbot AI
-with tabs[6]:
-    if not raw_dfs:
-        st.warning("📂 Please upload at least one raw CSV/Excel file.")
-    else:
-        chatbot2.run_chat(raw_dfs)
-
-# Sidebar Reset
-if st.sidebar.button("🔄 Reset App"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
+                else:
+                    st.warning("⚠️ No chart suggested.")
