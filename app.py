@@ -62,7 +62,7 @@ if uploaded_files and st.session_state["last_uploaded_files"] != uploaded_files:
 
     st.session_state["last_uploaded_files"] = uploaded_files
 
-    with st.spinner("🔐 Reading your precious data (safe with us)..."):
+    with st.spinner("🔐 Implementing Auto Mapping..."):
         raw_dfs = {}
 
         for i, file in enumerate(uploaded_files):
