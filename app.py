@@ -109,7 +109,7 @@ with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# ---------------- TAB 2 (FIXED MAPPING FLOW) ----------------
+# ---------------- TAB 2 (FINAL FIXED) ----------------
 with tabs[1]:
     st.subheader("File Mapping")
 
@@ -119,7 +119,6 @@ with tabs[1]:
 
             mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-            # ✅ ONLY SAVE WHEN BUTTON CLICKED
             if confirmed:
 
                 with st.spinner("💾 Saving mapping..."):
@@ -131,7 +130,9 @@ with tabs[1]:
                     st.session_state["files_mapped"] = True
 
                 st.success("✅ Mapping completed")
-                st.rerun()
+                st.info("👉 You can now proceed to Analytics tabs")
+
+                # ❌ NO RERUN HERE
 
         else:
             st.dataframe(
