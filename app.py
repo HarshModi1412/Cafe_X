@@ -92,9 +92,6 @@ elif st.session_state["files_mapped"]:
 
 # ---------------- DATA ----------------
 txns_df = st.session_state["txns_df"]
-cust_df = st.session_state["cust_df"]
-prod_df = st.session_state["prod_df"]
-promo_df = st.session_state["promo_df"]
 
 # ---------------- TABS ----------------
 tabs = st.tabs([
@@ -112,7 +109,7 @@ with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# ---------------- TAB 2 ----------------
+# ---------------- TAB 2 (FIXED MAPPING FLOW) ----------------
 with tabs[1]:
     st.subheader("File Mapping")
 
@@ -120,10 +117,13 @@ with tabs[1]:
 
         if not st.session_state["files_mapped"]:
 
-            mapped_data = classify_and_extract_data(uploaded_files)
+            mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-            if mapped_data:
+            # ✅ ONLY SAVE WHEN BUTTON CLICKED
+            if confirmed:
+
                 with st.spinner("💾 Saving mapping..."):
+
                     st.session_state["txns_df"] = mapped_data.get("Transactions")
                     st.session_state["cust_df"] = mapped_data.get("Customers")
                     st.session_state["prod_df"] = mapped_data.get("Products")
@@ -134,7 +134,10 @@ with tabs[1]:
                 st.rerun()
 
         else:
-            st.dataframe(txns_df.head() if txns_df is not None else "No Transactions", width="stretch")
+            st.dataframe(
+                st.session_state["txns_df"].head() if st.session_state["txns_df"] is not None else "No Transactions",
+                width="stretch"
+            )
 
     else:
         st.info("Upload files first")
