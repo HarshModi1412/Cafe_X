@@ -122,54 +122,50 @@ def classify_and_extract_data(uploaded_files):
 
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    # ---------------- SESSION STATE INIT ----------------
     if "mapping_store" not in st.session_state:
         st.session_state.mapping_store = {}
-
-    if "confirm_mapping_clicked" not in st.session_state:
-        st.session_state.confirm_mapping_clicked = False
 
     all_cols = sorted({
         col for _, df in file_dfs for col in df.columns
     })
 
-    # ---------------- UI ----------------
-    for role in REQUIRED_FIELDS:
+    # ---------------- FORM ----------------
+    with st.form("mapping_form"):
 
-        st.markdown(f"### 🗂 Mapping for `{role}`")
+        for role in REQUIRED_FIELDS:
 
-        auto_mapping = auto_map_fields(role, inventory)
+            st.markdown(f"### 🗂 Mapping for `{role}`")
 
-        for field in REQUIRED_FIELDS[role]:
+            auto_mapping = auto_map_fields(role, inventory)
 
-            key = f"{role}_{field}"
+            for field in REQUIRED_FIELDS[role]:
 
-            # Pre-fill
-            default_val = "--"
-            if field in auto_mapping:
-                default_val = auto_mapping[field][1]
+                key = f"{role}_{field}"
 
-            if key not in st.session_state.mapping_store:
-                st.session_state.mapping_store[key] = default_val
+                default_val = "--"
+                if field in auto_mapping:
+                    default_val = auto_mapping[field][1]
 
-            current_val = st.session_state.mapping_store[key]
+                if key not in st.session_state.mapping_store:
+                    st.session_state.mapping_store[key] = default_val
 
-            selection = st.selectbox(
-                f"{field}",
-                ["--"] + all_cols,
-                index=(["--"] + all_cols).index(current_val) if current_val in all_cols else 0,
-                key=key
-            )
+                current_val = st.session_state.mapping_store[key]
 
-            # Persist selection
-            st.session_state.mapping_store[key] = selection
+                selection = st.selectbox(
+                    f"{field}",
+                    ["--"] + all_cols,
+                    index=(["--"] + all_cols).index(current_val)
+                    if current_val in all_cols else 0,
+                    key=key
+                )
 
-    # ---------------- BUTTON (STATEFUL) ----------------
-    if st.button("✅ Confirm Mapping"):
-        st.session_state.confirm_mapping_clicked = True
+                st.session_state.mapping_store[key] = selection
 
-    # ---------------- SAVE LOGIC ----------------
-    if st.session_state.confirm_mapping_clicked:
+        # ONLY trigger point
+        submitted = st.form_submit_button("✅ Confirm Mapping")
+
+    # ---------------- AFTER SUBMIT ----------------
+    if submitted:
 
         final_data = {}
 
@@ -193,9 +189,6 @@ def classify_and_extract_data(uploaded_files):
                     file_dfs,
                     list(REQUIRED_FIELDS[role].keys())
                 )
-
-        # 🔑 RESET FLAG (critical)
-        st.session_state.confirm_mapping_clicked = False
 
         return final_data, True
 
