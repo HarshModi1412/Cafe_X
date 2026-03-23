@@ -22,14 +22,10 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<h1 style='margin-bottom:0;'>Cafe_X</h1>
-<hr style='margin-top:0;'>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0;'>Cafe_X</h1><hr>", unsafe_allow_html=True)
 
 # ---------------- SESSION STATE ----------------
 defaults = {
-    "uploaded_files": None,
     "last_uploaded_files": None,
     "raw_dfs": {},
     "files_mapped": False,
@@ -39,9 +35,7 @@ defaults = {
     "promo_df": None,
     "start_sales_analysis": False,
     "start_subcat_analysis": False,
-    "run_rfm": False,
-    "mapping_submitted": False,
-    "mapped_data_cache": None# 🔑 ONLY FLAG NEEDED
+    "run_rfm": False
 }
 
 for k, v in defaults.items():
@@ -78,6 +72,14 @@ if uploaded_files and st.session_state["last_uploaded_files"] != uploaded_files:
 raw_dfs = st.session_state.get("raw_dfs", {})
 txns_df = st.session_state["txns_df"]
 
+# ---------------- STATUS ----------------
+if not uploaded_files and not st.session_state["files_mapped"]:
+    st.info("👈 Upload files from sidebar")
+elif uploaded_files and not st.session_state["files_mapped"]:
+    st.warning("📤 Files uploaded. Go to File Mapping tab")
+elif st.session_state["files_mapped"]:
+    st.success("✅ Files mapped. Ready")
+
 # ---------------- TABS ----------------
 tabs = st.tabs([
     "📘 Instructions",
@@ -94,7 +96,7 @@ with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# ---------------- TAB 2 (FINAL FIX) ----------------
+# ---------------- TAB 2 ----------------
 with tabs[1]:
     st.subheader("File Mapping")
 
@@ -102,6 +104,7 @@ with tabs[1]:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
+        # ✅ SINGLE CLICK EXECUTION
         if confirmed:
 
             with st.spinner("💾 Saving mapping..."):
@@ -116,18 +119,14 @@ with tabs[1]:
             st.success("✅ Mapping completed successfully")
             st.info("👉 You can now proceed to Analytics tabs")
 
-            # 🔑 CRITICAL FIX: force fresh rerun with updated state
-            st.rerun()
+            # ❌ NO RERUN (prevents tab reset)
 
         elif st.session_state.get("files_mapped", False):
 
             st.success("✅ Mapping already completed")
 
             if st.session_state["txns_df"] is not None:
-                st.dataframe(
-                    st.session_state["txns_df"].head(),
-                    width="stretch"
-                )
+                st.dataframe(st.session_state["txns_df"].head(), width="stretch")
 
     else:
         st.info("Upload files first")
@@ -135,7 +134,7 @@ with tabs[1]:
 # ---------------- TAB 3 ----------------
 with tabs[2]:
     if txns_df is None:
-        st.warning("Upload Transactions")
+        st.warning("Upload & Map first")
     else:
         if not st.session_state["start_sales_analysis"]:
             if st.button("▶️ Start Sales Analytics"):
@@ -150,7 +149,7 @@ with tabs[2]:
 # ---------------- TAB 4 ----------------
 with tabs[3]:
     if txns_df is None:
-        st.warning("Upload Transactions")
+        st.warning("Upload & Map first")
     else:
         if not st.session_state["start_subcat_analysis"]:
             if st.button("▶️ Start Sub-Category Analysis"):
@@ -163,7 +162,7 @@ with tabs[3]:
 # ---------------- TAB 5 ----------------
 with tabs[4]:
     if txns_df is None:
-        st.warning("Upload Transactions")
+        st.warning("Upload & Map first")
     else:
         if not st.session_state["run_rfm"]:
             if st.button("▶️ Run RFM Analysis"):
