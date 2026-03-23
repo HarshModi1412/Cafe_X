@@ -39,9 +39,7 @@ defaults = {
     "promo_df": None,
     "start_sales_analysis": False,
     "start_subcat_analysis": False,
-    "run_rfm": False,
-    "mapping_done_once": False,
-    "mapping_trigger": False   # 🔑 NEW FIX
+    "run_rfm": False
 }
 
 for k, v in defaults.items():
@@ -119,12 +117,8 @@ with tabs[1]:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-        # 🔑 STEP 1: capture button click persistently
+        # ✅ DIRECT execution (NO trigger, NO delay)
         if confirmed:
-            st.session_state["mapping_trigger"] = True
-
-        # 🔑 STEP 2: execute mapping ONCE
-        if st.session_state.get("mapping_trigger", False) and not st.session_state.get("mapping_done_once", False):
 
             with st.spinner("💾 Saving mapping..."):
 
@@ -134,16 +128,12 @@ with tabs[1]:
                 st.session_state["promo_df"] = mapped_data.get("Promotions")
 
                 st.session_state["files_mapped"] = True
-                st.session_state["mapping_done_once"] = True
-
-            # 🔑 STEP 3: reset trigger
-            st.session_state["mapping_trigger"] = False
 
             st.success("✅ Mapping completed successfully")
             st.info("👉 You can now proceed to Analytics tabs")
 
-        # show data after mapping
-        elif st.session_state.get("mapping_done_once", False):
+        # ✅ show after mapping
+        elif st.session_state.get("files_mapped", False):
 
             st.success("✅ Mapping already completed")
 
@@ -155,7 +145,6 @@ with tabs[1]:
 
     else:
         st.info("Upload files first")
-
 # ---------------- TAB 3 ----------------
 with tabs[2]:
     if txns_df is None:
