@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # Modules
-from modules.rfm import calculate_rfm
+from modules.rfm import calculate_rfm, get_campaign_targets, generate_personal_offer
 from modules.sales_analytics import render_sales_analytics, render_subcategory_trends, generate_sales_insights
 from modules.mapper import classify_and_extract_data
 from modules.smart_insights import generate_dynamic_insights
@@ -13,7 +13,7 @@ import chatbot2
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="Cafe_X Dashboard", page_icon="📊", layout="wide")
 
-# ---------------- UI ----------------
+# ---------------- UI CLEAN ----------------
 st.markdown("""
 <style>
 #MainMenu {visibility: hidden;}
@@ -22,10 +22,14 @@ header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1>Cafe_X</h1><hr>", unsafe_allow_html=True)
+st.markdown("""
+<h1 style='margin-bottom:0;'>Cafe_X</h1>
+<hr style='margin-top:0;'>
+""", unsafe_allow_html=True)
 
 # ---------------- SESSION STATE ----------------
 defaults = {
+    "uploaded_files": None,
     "last_uploaded_files": None,
     "raw_dfs": {},
     "files_mapped": False,
@@ -35,8 +39,11 @@ defaults = {
     "promo_df": None,
     "start_sales_analysis": False,
     "start_subcat_analysis": False,
-    "run_rfm": False
+    "run_rfm": False,
+    "mapping_done_once": False,
+    "mapping_trigger": False   # 🔑 NEW FIX
 }
+
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -50,82 +57,109 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
-# ---------------- NAVIGATION ----------------
-page = st.sidebar.radio(
-    "Navigate",
-    [
-        "Instructions",
-        "File Mapping",
-        "Sales Analytics",
-        "Sub-Category",
-        "RFM",
-        "Analyst AI",
-        "Chatbot"
-    ]
-)
-
 # ---------------- FILE UPLOAD ----------------
-if uploaded_files and st.session_state["last_uploaded_files"] != uploaded_files:
+if uploaded_files:
 
-    st.session_state["last_uploaded_files"] = uploaded_files
+    if st.session_state["last_uploaded_files"] != uploaded_files:
 
-    with st.spinner("🔐 Reading your precious data (safe with us)..."):
-        raw_dfs = {}
+        st.session_state["last_uploaded_files"] = uploaded_files
 
-        for i, file in enumerate(uploaded_files):
-            ext = file.name.split('.')[-1].lower()
-            df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
+        with st.spinner("🔐 Reading your precious data (safe with us)..."):
+            raw_dfs = {}
 
-            raw_dfs[f"df_{i+1}"] = df
-            raw_dfs[f"df_{i+1}_name"] = file.name
+            for i, file in enumerate(uploaded_files):
+                ext = file.name.split('.')[-1].lower()
 
-    st.session_state["raw_dfs"] = raw_dfs
-    st.success("✅ Files uploaded")
+                try:
+                    df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
+
+                    raw_dfs[f"df_{i+1}"] = df
+                    raw_dfs[f"df_{i+1}_name"] = file.name
+
+                except Exception as e:
+                    st.error(f"Error loading {file.name}: {e}")
+
+        st.session_state["raw_dfs"] = raw_dfs
+        st.success("✅ Files uploaded")
 
 raw_dfs = st.session_state.get("raw_dfs", {})
+
+# ---------------- STATUS ----------------
+if not uploaded_files and not st.session_state["files_mapped"]:
+    st.info("👈 Upload files from sidebar")
+elif uploaded_files and not st.session_state["files_mapped"]:
+    st.warning("📤 Files uploaded. Go to File Mapping tab")
+elif st.session_state["files_mapped"]:
+    st.success("✅ Files mapped. Ready")
+
+# ---------------- DATA ----------------
 txns_df = st.session_state["txns_df"]
 
-# ---------------- PAGE ROUTING ----------------
+# ---------------- TABS ----------------
+tabs = st.tabs([
+    "📘 Instructions",
+    "🗂️ File Mapping",
+    "📊 Sales Analytics",
+    "🔍 Sub-Category",
+    "📊 RFM",
+    "🤖 Analyst AI",
+    "🤖 Chatbot"
+])
 
-# -------- Instructions --------
-if page == "Instructions":
+# ---------------- TAB 1 ----------------
+with tabs[0]:
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# -------- Mapping --------
-elif page == "File Mapping":
-
+# ---------------- TAB 2 (FIXED) ----------------
+with tabs[1]:
     st.subheader("File Mapping")
 
     if uploaded_files:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
+        # 🔑 STEP 1: capture button click persistently
         if confirmed:
+            st.session_state["mapping_trigger"] = True
+
+        # 🔑 STEP 2: execute mapping ONCE
+        if st.session_state.get("mapping_trigger", False) and not st.session_state.get("mapping_done_once", False):
 
             with st.spinner("💾 Saving mapping..."):
+
                 st.session_state["txns_df"] = mapped_data.get("Transactions")
                 st.session_state["cust_df"] = mapped_data.get("Customers")
                 st.session_state["prod_df"] = mapped_data.get("Products")
                 st.session_state["promo_df"] = mapped_data.get("Promotions")
+
                 st.session_state["files_mapped"] = True
+                st.session_state["mapping_done_once"] = True
+
+            # 🔑 STEP 3: reset trigger
+            st.session_state["mapping_trigger"] = False
 
             st.success("✅ Mapping completed successfully")
-            st.info("👉 Move to Analytics from sidebar")
+            st.info("👉 You can now proceed to Analytics tabs")
 
-        elif st.session_state.get("files_mapped"):
+        # show data after mapping
+        elif st.session_state.get("mapping_done_once", False):
 
             st.success("✅ Mapping already completed")
-            st.dataframe(st.session_state["txns_df"].head(), width="stretch")
+
+            if st.session_state["txns_df"] is not None:
+                st.dataframe(
+                    st.session_state["txns_df"].head(),
+                    width="stretch"
+                )
 
     else:
         st.info("Upload files first")
 
-# -------- Sales --------
-elif page == "Sales Analytics":
-
+# ---------------- TAB 3 ----------------
+with tabs[2]:
     if txns_df is None:
-        st.warning("Upload & Map first")
+        st.warning("Upload Transactions")
     else:
         if not st.session_state["start_sales_analysis"]:
             if st.button("▶️ Start Sales Analytics"):
@@ -137,11 +171,10 @@ elif page == "Sales Analytics":
             insights = generate_sales_insights(txns_df)
             generate_dynamic_insights(insights)
 
-# -------- Subcategory --------
-elif page == "Sub-Category":
-
+# ---------------- TAB 4 ----------------
+with tabs[3]:
     if txns_df is None:
-        st.warning("Upload & Map first")
+        st.warning("Upload Transactions")
     else:
         if not st.session_state["start_subcat_analysis"]:
             if st.button("▶️ Start Sub-Category Analysis"):
@@ -151,11 +184,10 @@ elif page == "Sub-Category":
         else:
             render_subcategory_trends(txns_df)
 
-# -------- RFM --------
-elif page == "RFM":
-
+# ---------------- TAB 5 ----------------
+with tabs[4]:
     if txns_df is None:
-        st.warning("Upload & Map first")
+        st.warning("Upload Transactions")
     else:
         if not st.session_state["run_rfm"]:
             if st.button("▶️ Run RFM Analysis"):
@@ -163,21 +195,21 @@ elif page == "RFM":
                     st.session_state["run_rfm"] = True
                 st.rerun()
         else:
-            rfm_df = calculate_rfm(txns_df)
+            with st.spinner("📊 Doing analysis..."):
+                rfm_df = calculate_rfm(txns_df)
+
             st.dataframe(rfm_df.head(), width="stretch")
 
-# -------- Analyst --------
-elif page == "Analyst AI":
-
+# ---------------- TAB 6 ----------------
+with tabs[5]:
     if raw_dfs:
         BA.run_business_analyst_tab(raw_dfs)
         KPI_analyst.run_kpi_analyst(raw_dfs)
     else:
         st.warning("Upload files")
 
-# -------- Chatbot --------
-elif page == "Chatbot":
-
+# ---------------- TAB 7 ----------------
+with tabs[6]:
     if raw_dfs:
         chatbot2.run_chat(raw_dfs)
     else:
