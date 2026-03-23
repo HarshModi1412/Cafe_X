@@ -117,21 +117,26 @@ with tabs[1]:
 
         mapped_data, confirmed = classify_and_extract_data(uploaded_files)
 
-        # ✅ DIRECT execution (NO trigger, NO delay)
-        if confirmed:
+# persist submission
+if confirmed:
+    st.session_state["mapping_submitted"] = True
 
-            with st.spinner("💾 Saving mapping..."):
+# execute using persistent state
+if st.session_state.get("mapping_submitted", False):
 
-                st.session_state["txns_df"] = mapped_data.get("Transactions")
-                st.session_state["cust_df"] = mapped_data.get("Customers")
-                st.session_state["prod_df"] = mapped_data.get("Products")
-                st.session_state["promo_df"] = mapped_data.get("Promotions")
+    with st.spinner("💾 Saving mapping..."):
 
-                st.session_state["files_mapped"] = True
+        st.session_state["txns_df"] = mapped_data.get("Transactions")
+        st.session_state["cust_df"] = mapped_data.get("Customers")
+        st.session_state["prod_df"] = mapped_data.get("Products")
+        st.session_state["promo_df"] = mapped_data.get("Promotions")
 
-            st.success("✅ Mapping completed successfully")
-            st.info("👉 You can now proceed to Analytics tabs")
+        st.session_state["files_mapped"] = True
 
+    st.session_state["mapping_submitted"] = False  # reset
+
+    st.success("✅ Mapping completed successfully")
+    st.info("👉 You can now proceed to Analytics tabs")
         # ✅ show after mapping
         elif st.session_state.get("files_mapped", False):
 
