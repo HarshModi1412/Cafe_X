@@ -3,32 +3,69 @@ import pandas as pd
 from collections import defaultdict
 
 # ------------------ CONFIG ------------------
-REQUIRED_FIELDS = {...}  # keep same
-IMPORTANT_FIELDS = ["Invoice Total", "Quantity", "Unit Price"]
+
+REQUIRED_FIELDS = {
+    "Transactions": {
+        "Invoice ID": ["invoice_id", "bill_no", "invoice number", "InvoiceNo", "Invoice No", "orderid", "order id", "order_id"],
+        "Date": ["date", "invoice_date", "purchase_date", "Invoicedate", "orderdate", "order date"],
+        "Sub Category": ["subcat", "product_type", "subcategory", "sub-category"],
+        "Invoice Total": ["amount", "invoice_amount", "total_amount", "grand_total", "Sales", "sales"],
+        "Quantity": ["qty", "units", "number of items"],
+        "Discount": ["discount_amt", "disc", "offer_discount", "discount"],
+        "Description": ["offer", "promo_desc", "discount name", "description"],
+        "Transaction Type": ["transaction_type", "type", "return"],
+        "Production Cost": ["cost", "production_cost", "item_cost"],
+        "Unit Cost": ["unit_cost", "unit cost", "cost per unit"],
+        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
+        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
+        "Unit Price": ["unit", "price", "unit_price", "product price", "unitprice"]
+    },
+    "Customers": {
+        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
+        "Gender": ["sex", "customer_gender"],
+        "Name": ["name", "NAME", "customer_name"],
+        "Telephone": ["telephone", "phone", "number"],
+        "Email": ["email", "mail"],
+        "Date Of Birth": ["date_of_birth", "dob"]
+    },
+    "Products": {
+        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
+        "Sub Category": ["subcategory", "subcat", "product_type", "catagory"],
+        "Category": ["cat", "product_cat", "segment"]
+    },
+    "Promotions": {
+        "Description": ["offer_desc", "campaign_desc", "promotion_name"],
+        "Start": ["start", "from_date", "campaign_start", "start_date"],
+        "End": ["end", "to_date", "campaign_end", "end_date"],
+        "Discont": ["discount_value", "discount_rate", "disc"]
+    }
+}
 
 # ------------------ HELPERS ------------------
 
+def normalize(col: str) -> str:
+    return col.strip().lower().replace(" ", "_")
+
+
 @st.cache_data(show_spinner=False)
 def load_file(file):
-    """Fast file loader with fallback encoding"""
-    file_ext = file.name.lower().split('.')[-1]
+    ext = file.name.lower().split('.')[-1]
 
-    if file_ext == "csv":
-        try:
-            return pd.read_csv(file, encoding="utf-8")
-        except:
-            file.seek(0)
-            return pd.read_csv(file, encoding="latin1")
+    try:
+        if ext == "csv":
+            try:
+                return pd.read_csv(file, encoding="utf-8")
+            except:
+                file.seek(0)
+                return pd.read_csv(file, encoding="latin1")
 
-    elif file_ext in ("xlsx", "xls"):
-        return pd.read_excel(file, engine="openpyxl")
+        elif ext in ("xlsx", "xls"):
+            return pd.read_excel(file, engine="openpyxl")
 
-    else:
+    except Exception as e:
         return None
 
-
-def normalize_columns(columns):
-    return {col: col.strip().lower().replace(" ", "_") for col in columns}
+    return None
 
 
 @st.cache_data(show_spinner=False)
@@ -39,65 +76,65 @@ def build_column_inventory(files):
     for file in files:
         df = load_file(file)
         if df is None:
+            st.warning(f"Skipping file: {file.name}")
             continue
 
-        norm_map = normalize_columns(df.columns)
-        file_dfs.append((file.name, df, norm_map))
+        file_dfs.append((file.name, df))
 
-        for col, norm in norm_map.items():
-            inventory[norm].append((file.name, col))
+        for col in df.columns:
+            inventory[normalize(col)].append((file.name, col))
 
     return inventory, file_dfs
 
 
 def auto_map_fields(role, inventory):
+    if role not in REQUIRED_FIELDS:
+        raise ValueError(f"Invalid role: {role}")
+
     mapping = {}
 
     for field, aliases in REQUIRED_FIELDS[role].items():
         candidates = [field] + aliases
-        candidates = [c.lower().replace(" ", "_") for c in candidates]
+        candidates = [normalize(c) for c in candidates]
 
         for c in candidates:
             if c in inventory:
-                mapping[field] = inventory[c][0]  # only metadata
+                mapping[field] = inventory[c][0]  # (file, column)
                 break
 
     return mapping
 
 
 def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
-    columns = {}
+    file_lookup = {name: df for name, df in file_dfs}
 
-    # Create quick lookup
-    file_lookup = {name: df for name, df, _ in file_dfs}
+    columns = {}
+    max_len = 0
 
     for field, (fname, col) in mapping.items():
-        df = file_lookup[fname]
-        columns[field] = df[col].reset_index(drop=True)
-
-    max_len = max((len(s) for s in columns.values()), default=0)
+        series = file_lookup[fname][col].reset_index(drop=True)
+        columns[field] = series
+        max_len = max(max_len, len(series))
 
     df = pd.DataFrame({
         field: columns.get(field, pd.Series([pd.NA] * max_len))
         for field in required_fields
     })
 
-    # Vectorized computations
-    if "Invoice Total" in df:
-        if df["Invoice Total"].isna().all():
-            if {"Unit Price", "Quantity"}.issubset(df.columns):
-                df["Invoice Total"] = (
-                    pd.to_numeric(df["Unit Price"], errors="coerce") *
-                    pd.to_numeric(df["Quantity"], errors="coerce")
-                )
+    # Derived fields
+    if "Invoice Total" in df and df["Invoice Total"].isna().all():
+        if {"Unit Price", "Quantity"}.issubset(df.columns):
+            df["Invoice Total"] = (
+                pd.to_numeric(df["Unit Price"], errors="coerce") *
+                pd.to_numeric(df["Quantity"], errors="coerce")
+            )
 
-    if "Production Cost" in df:
-        if df["Production Cost"].isna().all():
-            if {"Unit Cost", "Quantity"}.issubset(df.columns):
-                df["Production Cost"] = (
-                    pd.to_numeric(df["Unit Cost"], errors="coerce") *
-                    pd.to_numeric(df["Quantity"], errors="coerce")
-                )
+    if "Production Cost" in df and df["Production Cost"].isna().all():
+        if {"Unit Cost", "Quantity"}.issubset(df.columns):
+            df["Production Cost"] = (
+                pd.to_numeric(df["Unit Cost"], errors="coerce") *
+                pd.to_numeric(df["Quantity"], errors="coerce")
+            )
 
     return df
 
@@ -105,13 +142,12 @@ def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
 # ------------------ MAIN ------------------
 
 def classify_and_extract_data(uploaded_files):
-
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    final_data = {}
     all_mappings = {}
+    final_data = {}
 
-    for role in REQUIRED_FIELDS:
+    for role in REQUIRED_FIELDS.keys():
 
         auto_mapping = auto_map_fields(role, inventory)
         missing = [f for f in REQUIRED_FIELDS[role] if f not in auto_mapping]
@@ -124,7 +160,7 @@ def classify_and_extract_data(uploaded_files):
             st.warning(f"Manual mapping needed: {', '.join(missing)}")
 
             all_cols = sorted({
-                col for _, df, _ in file_dfs for col in df.columns
+                col for _, df in file_dfs for col in df.columns
             })
 
             for field in missing:
@@ -135,7 +171,7 @@ def classify_and_extract_data(uploaded_files):
                 )
 
                 if sel != "--":
-                    for fname, df, _ in file_dfs:
+                    for fname, df in file_dfs:
                         if sel in df.columns:
                             manual_mapping[field] = (fname, sel)
                             break
@@ -145,6 +181,7 @@ def classify_and_extract_data(uploaded_files):
     if st.button("✅ Confirm and Start Analytics"):
         for role, mapping in all_mappings.items():
             fields = list(REQUIRED_FIELDS[role].keys())
+
             final_data[role] = build_dataframe_from_mapping(
                 mapping, file_dfs, fields
             )
