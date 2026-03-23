@@ -6,19 +6,38 @@ from collections import defaultdict
 
 REQUIRED_FIELDS = {
     "Transactions": {
-        "Invoice ID": ["invoice_id", "bill_no", "invoice number", "InvoiceNo", "Invoice No","orderid","order id","order_id","transaction_id"],
-        "Date": ["date", "invoice_date", "purchase_date", "orderdate"],
-        "Sub Category": ["subcat", "product_type", "subcategory"],
-        "Invoice Total": ["amount", "invoice_amount", "total_amount", "grand_total", "sales"],
-        "Quantity": ["qty", "units", "number of items", "quantity"],
-        "Discount": ["discount"],
-        "Description": ["description"],
-        "Transaction Type": ["transaction_type", "type"],
-        "Production Cost": ["cost", "production_cost"],
-        "Unit Cost": ["unit_cost"],
-        "Product ID": ["prod_id", "item_code", "stockcode"],
-        "Customer ID": ["customer", "cust_id", "client_id"],
-        "Unit Price": ["unit_price", "price"]
+        "Invoice ID": ["invoice_id", "bill_no", "invoice number", "InvoiceNo", "Invoice No", "orderid", "order id", "order_id","transaction_id","transaction id","transactionid"],
+        "Date": ["date", "invoice_date", "purchase_date", "Invoicedate", "orderdate", "order date","transaction_date","transactiondate","transaction date"],
+        "Sub Category": ["subcat", "product_type", "subcategory", "sub-category"],
+        "Invoice Total": ["amount", "invoice_amount", "total_amount", "grand_total", "Sales", "sales"],
+        "Quantity": ["qty", "units", "number of items"],
+        "Discount": ["discount_amt", "disc", "offer_discount", "discount"],
+        "Description": ["offer", "promo_desc", "discount name", "description"],
+        "Transaction Type": ["transaction_type", "type", "return"],
+        "Production Cost": ["cost", "production_cost", "item_cost"],
+        "Unit Cost": ["unit_cost", "unit cost", "cost per unit"],
+        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
+        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
+        "Unit Price": ["unit", "price", "unit_price", "product price", "unitprice"]
+    },
+    "Customers": {
+        "Customer ID": ["customer", "cust_id", "cust number", "client_id", "CustomerID"],
+        "Gender": ["sex", "customer_gender"],
+        "Name": ["name", "NAME", "customer_name"],
+        "Telephone": ["telephone", "phone", "number"],
+        "Email": ["email", "mail"],
+        "Date Of Birth": ["date_of_birth", "dob"]
+    },
+    "Products": {
+        "Product ID": ["prod_id", "item_code", "stockcode", "ProductID"],
+        "Sub Category": ["subcategory", "subcat", "product_type", "catagory"],
+        "Category": ["cat", "product_cat", "segment"]
+    },
+    "Promotions": {
+        "Description": ["offer_desc", "campaign_desc", "promotion_name"],
+        "Start": ["start", "from_date", "campaign_start", "start_date"],
+        "End": ["end", "to_date", "campaign_end", "end_date"],
+        "Discont": ["discount_value", "discount_rate", "disc"]
     }
 }
 
@@ -84,16 +103,8 @@ def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
     columns = {}
     max_len = 0
 
-    # -------- SAFE COLUMN EXTRACTION --------
     for field, (fname, col) in mapping.items():
-
-        df = file_lookup.get(fname)
-
-        if df is not None and col in df.columns:
-            s = df[col].reset_index(drop=True)
-        else:
-            s = pd.Series([pd.NA])
-
+        s = file_lookup[fname][col].reset_index(drop=True)
         columns[field] = s
         max_len = max(max_len, len(s))
 
@@ -101,21 +112,6 @@ def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
         field: columns.get(field, pd.Series([pd.NA] * max_len))
         for field in required_fields
     })
-
-    # -------- FIX: NUMERIC CONVERSION --------
-    for col in ["Quantity", "Unit Price", "Invoice Total", "Production Cost", "Unit Cost"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # -------- FIX: CALCULATE INVOICE TOTAL --------
-    if "Invoice Total" not in df.columns or df["Invoice Total"].isna().all():
-        if "Quantity" in df.columns and "Unit Price" in df.columns:
-            df["Invoice Total"] = df["Quantity"] * df["Unit Price"]
-
-    # -------- FIX: CALCULATE PRODUCTION COST --------
-    if "Production Cost" not in df.columns or df["Production Cost"].isna().all():
-        if "Unit Cost" in df.columns and "Quantity" in df.columns:
-            df["Production Cost"] = df["Unit Cost"] * df["Quantity"]
 
     return df
 
@@ -148,6 +144,7 @@ def classify_and_extract_data(uploaded_files):
 
             key = f"{role}_{field}"
 
+            # Pre-fill
             default_val = "--"
             if field in auto_mapping:
                 default_val = auto_mapping[field][1]
@@ -164,13 +161,14 @@ def classify_and_extract_data(uploaded_files):
                 key=key
             )
 
+            # Persist selection
             st.session_state.mapping_store[key] = selection
 
-    # ---------------- BUTTON ----------------
+    # ---------------- BUTTON (STATEFUL) ----------------
     if st.button("✅ Confirm Mapping"):
         st.session_state.confirm_mapping_clicked = True
 
-    # ---------------- SAVE ----------------
+    # ---------------- SAVE LOGIC ----------------
     if st.session_state.confirm_mapping_clicked:
 
         final_data = {}
@@ -185,17 +183,10 @@ def classify_and_extract_data(uploaded_files):
                     sel = st.session_state.mapping_store.get(f"{role}_{field}")
 
                     if sel and sel != "--":
-
-                        matched = False
-
                         for fname, df in file_dfs:
                             if sel in df.columns:
                                 role_mapping[field] = (fname, sel)
-                                matched = True
                                 break
-
-                        if not matched:
-                            st.warning(f"⚠️ Column '{sel}' not found")
 
                 final_data[role] = build_dataframe_from_mapping(
                     role_mapping,
@@ -203,6 +194,7 @@ def classify_and_extract_data(uploaded_files):
                     list(REQUIRED_FIELDS[role].keys())
                 )
 
+        # 🔑 RESET FLAG (critical)
         st.session_state.confirm_mapping_clicked = False
 
         return final_data, True
