@@ -51,19 +51,15 @@ def normalize(col: str) -> str:
 def load_file(file):
     ext = file.name.lower().split('.')[-1]
 
-    try:
-        if ext == "csv":
-            try:
-                return pd.read_csv(file, encoding="utf-8")
-            except:
-                file.seek(0)
-                return pd.read_csv(file, encoding="latin1")
+    if ext == "csv":
+        try:
+            return pd.read_csv(file, encoding="utf-8")
+        except:
+            file.seek(0)
+            return pd.read_csv(file, encoding="latin1")
 
-        elif ext in ("xlsx", "xls"):
-            return pd.read_excel(file, engine="openpyxl")
-
-    except Exception as e:
-        return None
+    elif ext in ("xlsx", "xls"):
+        return pd.read_excel(file, engine="openpyxl")
 
     return None
 
@@ -76,7 +72,6 @@ def build_column_inventory(files):
     for file in files:
         df = load_file(file)
         if df is None:
-            st.warning(f"Skipping file: {file.name}")
             continue
 
         file_dfs.append((file.name, df))
@@ -88,9 +83,6 @@ def build_column_inventory(files):
 
 
 def auto_map_fields(role, inventory):
-    if role not in REQUIRED_FIELDS:
-        raise ValueError(f"Invalid role: {role}")
-
     mapping = {}
 
     for field, aliases in REQUIRED_FIELDS[role].items():
@@ -99,7 +91,7 @@ def auto_map_fields(role, inventory):
 
         for c in candidates:
             if c in inventory:
-                mapping[field] = inventory[c][0]  # (file, column)
+                mapping[field] = inventory[c][0]
                 break
 
     return mapping
@@ -112,29 +104,14 @@ def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
     max_len = 0
 
     for field, (fname, col) in mapping.items():
-        series = file_lookup[fname][col].reset_index(drop=True)
-        columns[field] = series
-        max_len = max(max_len, len(series))
+        s = file_lookup[fname][col].reset_index(drop=True)
+        columns[field] = s
+        max_len = max(max_len, len(s))
 
     df = pd.DataFrame({
         field: columns.get(field, pd.Series([pd.NA] * max_len))
         for field in required_fields
     })
-
-    # Derived fields
-    if "Invoice Total" in df and df["Invoice Total"].isna().all():
-        if {"Unit Price", "Quantity"}.issubset(df.columns):
-            df["Invoice Total"] = (
-                pd.to_numeric(df["Unit Price"], errors="coerce") *
-                pd.to_numeric(df["Quantity"], errors="coerce")
-            )
-
-    if "Production Cost" in df and df["Production Cost"].isna().all():
-        if {"Unit Cost", "Quantity"}.issubset(df.columns):
-            df["Production Cost"] = (
-                pd.to_numeric(df["Unit Cost"], errors="coerce") *
-                pd.to_numeric(df["Quantity"], errors="coerce")
-            )
 
     return df
 
@@ -142,49 +119,73 @@ def build_dataframe_from_mapping(mapping, file_dfs, required_fields):
 # ------------------ MAIN ------------------
 
 def classify_and_extract_data(uploaded_files):
+
     inventory, file_dfs = build_column_inventory(uploaded_files)
 
-    all_mappings = {}
-    final_data = {}
+    # ✅ Persist mapping state
+    if "mapping_store" not in st.session_state:
+        st.session_state["mapping_store"] = {}
 
-    for role in REQUIRED_FIELDS.keys():
+    all_cols = sorted({
+        col for _, df in file_dfs for col in df.columns
+    })
 
-        auto_mapping = auto_map_fields(role, inventory)
-        missing = [f for f in REQUIRED_FIELDS[role] if f not in auto_mapping]
+    # ---------------- UI ----------------
+    for role in REQUIRED_FIELDS:
 
         st.markdown(f"### 🗂 Mapping for `{role}`")
 
-        manual_mapping = {}
+        auto_mapping = auto_map_fields(role, inventory)
 
-        if missing:
-            st.warning(f"Manual mapping needed: {', '.join(missing)}")
+        for field in REQUIRED_FIELDS[role]:
 
-            all_cols = sorted({
-                col for _, df in file_dfs for col in df.columns
-            })
+            key = f"{role}_{field}"
 
-            for field in missing:
-                sel = st.selectbox(
-                    f"{role} → {field}",
-                    ["--"] + all_cols,
-                    key=f"{role}_{field}"
-                )
+            # Pre-fill from auto-mapping
+            default_val = "--"
+            if field in auto_mapping:
+                default_val = auto_mapping[field][1]
 
-                if sel != "--":
-                    for fname, df in file_dfs:
-                        if sel in df.columns:
-                            manual_mapping[field] = (fname, sel)
-                            break
+            if key not in st.session_state["mapping_store"]:
+                st.session_state["mapping_store"][key] = default_val
 
-        all_mappings[role] = {**auto_mapping, **manual_mapping}
-
-    if st.button("✅ Confirm and Start Analytics"):
-        for role, mapping in all_mappings.items():
-            fields = list(REQUIRED_FIELDS[role].keys())
-
-            final_data[role] = build_dataframe_from_mapping(
-                mapping, file_dfs, fields
+            selection = st.selectbox(
+                f"{field}",
+                ["--"] + all_cols,
+                index=(["--"] + all_cols).index(
+                    st.session_state["mapping_store"][key]
+                ) if st.session_state["mapping_store"][key] in all_cols else 0,
+                key=key
             )
+
+            # Save selection (but DO NOT trigger final mapping)
+            st.session_state["mapping_store"][key] = selection
+
+    # ---------------- CONFIRM BUTTON ----------------
+    if st.button("✅ Confirm Mapping"):
+
+        final_data = {}
+
+        with st.spinner("💾 Saving mapping..."):
+
+            for role in REQUIRED_FIELDS:
+
+                role_mapping = {}
+
+                for field in REQUIRED_FIELDS[role]:
+                    sel = st.session_state["mapping_store"].get(f"{role}_{field}")
+
+                    if sel and sel != "--":
+                        for fname, df in file_dfs:
+                            if sel in df.columns:
+                                role_mapping[field] = (fname, sel)
+                                break
+
+                final_data[role] = build_dataframe_from_mapping(
+                    role_mapping,
+                    file_dfs,
+                    list(REQUIRED_FIELDS[role].keys())
+                )
 
         return final_data
 
