@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timedelta
 
 # =========================
-# CONFIG FILES
+# CONFIG
 # =========================
 USERS_FILE = "user.csv"
 USAGE_FILE = "usage_logs.csv"
@@ -17,13 +17,11 @@ WINDOW_HOURS = 5
 # =========================
 def load_users():
     if not os.path.exists(USERS_FILE):
-        st.error("❌ users.csv not found")
         return {}
 
     df = pd.read_csv(USERS_FILE)
 
     if "email" not in df.columns or "password" not in df.columns:
-        st.error("❌ users.csv must have 'email' and 'password'")
         return {}
 
     df["email"] = df["email"].astype(str).str.strip().str.lower()
@@ -33,7 +31,7 @@ def load_users():
 
 
 def login_block():
-    st.warning("🔒 Login required to use this feature")
+    st.markdown('<div class="card"><h3>🔒 Login Required</h3></div>', unsafe_allow_html=True)
 
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
@@ -46,24 +44,22 @@ def login_block():
         if email_clean in users and users[email_clean] == password:
             st.session_state["logged_in"] = True
             st.session_state["user"] = email_clean
-            st.success("✅ Login successful")
+            st.success("Login successful")
             st.rerun()
         else:
-            st.error("❌ Invalid credentials")
+            st.error("Invalid credentials")
 
 
 # =========================
-# RATE LIMIT (CSV BASED)
+# RATE LIMIT
 # =========================
 def init_usage_file():
     if not os.path.exists(USAGE_FILE):
-        df = pd.DataFrame(columns=["email", "feature", "timestamp"])
-        df.to_csv(USAGE_FILE, index=False)
+        pd.DataFrame(columns=["email", "feature", "timestamp"]).to_csv(USAGE_FILE, index=False)
 
 
 def check_usage_limit(email, feature):
     init_usage_file()
-
     df = pd.read_csv(USAGE_FILE)
 
     if not df.empty:
@@ -71,38 +67,25 @@ def check_usage_limit(email, feature):
 
     now = datetime.now()
 
-    user_logs = df[
-        (df["email"] == email) &
-        (df["feature"] == feature)
-    ]
-
-    user_logs = user_logs[
-        user_logs["timestamp"] > (now - timedelta(hours=WINDOW_HOURS))
-    ]
+    user_logs = df[(df["email"] == email) & (df["feature"] == feature)]
+    user_logs = user_logs[user_logs["timestamp"] > (now - timedelta(hours=WINDOW_HOURS))]
 
     if len(user_logs) >= MAX_USAGE:
-        oldest = user_logs["timestamp"].min()
-        remaining = timedelta(hours=WINDOW_HOURS) - (now - oldest)
-        mins = int(remaining.total_seconds() // 60)
-
-        st.error(f"❌ Limit reached. Try again in ~{mins} mins.")
+        st.error("Limit reached. Try later.")
         return False
 
-    new_row = pd.DataFrame([{
+    df = pd.concat([df, pd.DataFrame([{
         "email": email,
         "feature": feature,
         "timestamp": now
-    }])
+    }])], ignore_index=True)
 
-    df = pd.concat([df, new_row], ignore_index=True)
     df.to_csv(USAGE_FILE, index=False)
-
     return True
 
 
 def get_remaining_usage(email, feature):
     init_usage_file()
-
     df = pd.read_csv(USAGE_FILE)
 
     if df.empty:
@@ -111,14 +94,8 @@ def get_remaining_usage(email, feature):
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     now = datetime.now()
 
-    user_logs = df[
-        (df["email"] == email) &
-        (df["feature"] == feature)
-    ]
-
-    user_logs = user_logs[
-        user_logs["timestamp"] > (now - timedelta(hours=WINDOW_HOURS))
-    ]
+    user_logs = df[(df["email"] == email) & (df["feature"] == feature)]
+    user_logs = user_logs[user_logs["timestamp"] > (now - timedelta(hours=WINDOW_HOURS))]
 
     return MAX_USAGE - len(user_logs)
 
@@ -144,186 +121,139 @@ import BA
 import KPI_analyst
 import chatbot2
 
+
 # =========================
-# UI CONFIG
+# UI (PREMIUM)
 # =========================
-st.set_page_config(page_title="Cafe_X Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Cafe_X", layout="wide")
 
 st.markdown("""
 <style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
+body {background:#0b0f19;color:#e5e7eb;font-family:Inter;}
+.card {background:#111827;padding:20px;border-radius:12px;border:1px solid #1f2937;margin-bottom:15px;}
+.hero {background:linear-gradient(135deg,#1e3a8a,#6d28d9);padding:30px;border-radius:14px;margin-bottom:20px;}
+.subtle {color:#9ca3af;font-size:13px;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1>Cafe_X</h1><hr>", unsafe_allow_html=True)
+# HERO
+st.markdown("""
+<div class="hero">
+<h1>🚀 Cafe_X Intelligence</h1>
+<p>Turn raw data into business decisions instantly</p>
+</div>
+""", unsafe_allow_html=True)
 
-# =========================
-# SESSION DEFAULTS
-# =========================
-defaults = {
-    "raw_dfs": {},
-    "last_uploaded_files": None,
-    "files_mapped": False,
-    "txns_df": None,
-    "cust_df": None,
-    "prod_df": None,
-    "promo_df": None,
-    "page": "📘 Instructions"
-}
-
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# FEATURE CARDS
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.markdown('<div class="card"><h4>📊 Analytics</h4><p class="subtle">Sales insights</p></div>', unsafe_allow_html=True)
+with col2:
+    st.markdown('<div class="card"><h4>🤖 AI Analyst</h4><p class="subtle">Smart recommendations</p></div>', unsafe_allow_html=True)
+with col3:
+    st.markdown('<div class="card"><h4>💬 Chatbot</h4><p class="subtle">Query your data</p></div>', unsafe_allow_html=True)
 
 
 # =========================
 # SIDEBAR
 # =========================
 if st.session_state["logged_in"]:
-    st.sidebar.success(f"👤 {st.session_state['user']}")
+    st.sidebar.markdown(f"""
+    <div class="card">
+        <div class="subtle">User</div>
+        <div>{st.session_state['user']}</div>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     st.sidebar.markdown("""
-<div style="
-    background: linear-gradient(135deg, #1f2937, #111827);
-    padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid #374151;
-    margin-bottom: 10px;
-">
-    <div style="font-size: 14px; color: #9ca3af;">👤 Mode</div>
-    <div style="font-size: 18px; font-weight: 600; color: #ffffff;">
-        Guest
+    <div class="card">
+        <div class="subtle">Mode</div>
+        <div>Guest</div>
+        <div class="subtle">Login for AI</div>
     </div>
-    <div style="font-size: 12px; color: #6b7280;">
-        Login to unlock AI features
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-st.sidebar.title("📁 Upload Files")
+uploaded_files = st.sidebar.file_uploader("Upload Files", accept_multiple_files=True)
 
-uploaded_files = st.sidebar.file_uploader(
-    "Upload CSV / Excel",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True
-)
-
-# Show usage ONLY if logged in
 if st.session_state["logged_in"]:
     user_email = st.session_state["user"]
-    st.sidebar.markdown("### ⚡ Usage Limits")
-    st.sidebar.info(f"🤖 Chatbot left: {get_remaining_usage(user_email, 'chatbot')}")
-    st.sidebar.info(f"📊 Analyst AI left: {get_remaining_usage(user_email, 'analyst_ai')}")
+    st.sidebar.markdown("### Usage")
+    st.sidebar.write("Chatbot:", get_remaining_usage(user_email, "chatbot"))
+    st.sidebar.write("Analyst:", get_remaining_usage(user_email, "analyst_ai"))
+
 
 # =========================
-# FILE PROCESSING
+# FILE HANDLING
 # =========================
-if uploaded_files and st.session_state["last_uploaded_files"] != uploaded_files:
-
-    st.session_state["last_uploaded_files"] = uploaded_files
-
+if uploaded_files:
     raw_dfs = {}
-
-    with st.spinner("Processing files..."):
-        for i, file in enumerate(uploaded_files):
-            ext = file.name.split('.')[-1].lower()
-            df = pd.read_csv(file) if ext == "csv" else pd.read_excel(file)
-
-            raw_dfs[f"df_{i+1}"] = df
-            raw_dfs[f"df_{i+1}_name"] = file.name
-
+    for i, file in enumerate(uploaded_files):
+        df = pd.read_csv(file)
+        raw_dfs[f"df_{i}"] = df
     st.session_state["raw_dfs"] = raw_dfs
-    st.success("✅ Files uploaded")
 
 raw_dfs = st.session_state.get("raw_dfs", {})
-txns_df = st.session_state["txns_df"]
+txns_df = st.session_state.get("txns_df")
+
 
 # =========================
 # NAVIGATION
 # =========================
-pages = [
-    "📘 Instructions",
-    "🗂️ File Mapping",
-    "📊 Sales Analytics",
-    "🔍 Sub-Category",
-    "📊 RFM",
-    "🤖 Analyst AI",
-    "🤖 Chatbot"
-]
+page = st.sidebar.radio("", [
+    "Instructions",
+    "Mapping",
+    "Analytics",
+    "SubCategory",
+    "RFM",
+    "Analyst AI",
+    "Chatbot"
+])
 
-selected_page = st.sidebar.radio("Navigation", pages)
 
 # =========================
-# PAGE ROUTING
+# PAGES
 # =========================
-if selected_page == "📘 Instructions":
-    st.subheader("Instructions")
-    st.write("Upload → Map → Analyze")
+if page == "Instructions":
+    st.markdown('<div class="card">Upload → Map → Analyze</div>', unsafe_allow_html=True)
 
-elif selected_page == "🗂️ File Mapping":
+elif page == "Mapping":
     if uploaded_files:
-        mapped_data, confirmed = classify_and_extract_data(uploaded_files)
-
+        mapped, confirmed = classify_and_extract_data(uploaded_files)
         if confirmed:
-            st.session_state["txns_df"] = mapped_data.get("Transactions")
-            st.session_state["cust_df"] = mapped_data.get("Customers")
-            st.session_state["prod_df"] = mapped_data.get("Products")
-            st.session_state["promo_df"] = mapped_data.get("Promotions")
+            st.session_state["txns_df"] = mapped.get("Transactions")
+            st.success("Mapping done")
 
-            st.success("✅ Mapping complete")
-    else:
-        st.warning("Upload files first")
-
-elif selected_page == "📊 Sales Analytics":
-    if txns_df is None:
-        st.warning("Upload Transactions")
-    else:
+elif page == "Analytics":
+    if txns_df is not None:
         render_sales_analytics(txns_df)
-        insights = generate_sales_insights(txns_df)
-        generate_dynamic_insights(insights)
 
-elif selected_page == "🔍 Sub-Category":
-    if txns_df is None:
-        st.warning("Upload Transactions")
-    else:
+elif page == "SubCategory":
+    if txns_df is not None:
         render_subcategory_trends(txns_df)
 
-elif selected_page == "📊 RFM":
-    if txns_df is None:
-        st.warning("Upload Transactions")
-    else:
-        rfm_df = calculate_rfm(txns_df)
-        st.dataframe(rfm_df, use_container_width=True)
+elif page == "RFM":
+    if txns_df is not None:
+        st.dataframe(calculate_rfm(txns_df))
 
-elif selected_page == "🤖 Analyst AI":
+elif page == "Analyst AI":
     if not st.session_state["logged_in"]:
         login_block()
     else:
-        if raw_dfs:
-            if check_usage_limit(st.session_state["user"], "analyst_ai"):
-                BA.run_business_analyst_tab(raw_dfs)
-                KPI_analyst.run_kpi_analyst(raw_dfs)
-        else:
-            st.warning("Upload files")
+        if check_usage_limit(st.session_state["user"], "analyst_ai"):
+            BA.run_business_analyst_tab(raw_dfs)
 
-elif selected_page == "🤖 Chatbot":
+elif page == "Chatbot":
     if not st.session_state["logged_in"]:
         login_block()
     else:
-        if raw_dfs:
-            if check_usage_limit(st.session_state["user"], "chatbot"):
-                chatbot2.run_chat(raw_dfs)
-        else:
-            st.warning("Upload files")
+        if check_usage_limit(st.session_state["user"], "chatbot"):
+            chatbot2.run_chat(raw_dfs)
+
 
 # =========================
 # LOGOUT
 # =========================
-st.sidebar.markdown("---")
-
 if st.session_state["logged_in"]:
-    if st.sidebar.button("🚪 Logout"):
+    if st.sidebar.button("Logout"):
         st.session_state.clear()
         st.rerun()
