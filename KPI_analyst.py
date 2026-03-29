@@ -1,48 +1,56 @@
 import streamlit as st
 import pandas as pd
 import json
-import chardet
-import requests
 import re
-from io import BytesIO
-import plotly.express as px
 import numpy as np
+import plotly.express as px
+from openai import OpenAI
 
-# --- Gemini API Setup ---
-GEMINI_API_KEY = "AIzaSyD9DfnqPz7vMgh5aUHaMAVjeJbg20VZMvU"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+# -------------------------
+# INIT CLIENT
+# -------------------------
+def get_client():
+    if "OPENAI_API_KEY" not in st.secrets:
+        st.error("OPENAI_API_KEY missing")
+        st.stop()
+    return OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- Gemini API Call ---
+
+# -------------------------
+# CHATGPT CALL
+# -------------------------
 def ask_llm(prompt):
-    headers = {"Content-Type": "application/json", "X-Goog-Api-Key": GEMINI_API_KEY}
-    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    client = get_client()
+
     try:
-        res = requests.post(GEMINI_URL, headers=headers, json=body)
-        res.raise_for_status()
-        result = res.json()
-        if "candidates" not in result:
-            return ""
-        return result["candidates"][0]["content"]["parts"][0]["text"]
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=prompt,
+            temperature=0.2,
+            max_output_tokens=1000
+        )
+        return response.output_text
     except Exception as e:
-        st.error(f"❌ Gemini Error: {e}")
+        st.error(f"❌ OpenAI Error: {e}")
         return ""
 
-# --- Extract JSON Safely ---
+
+# -------------------------
+# EXTRACT JSON
+# -------------------------
 def extract_json_from_text(text):
     try:
-        match = re.search(r"```json(.*?)```", text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
         match = re.search(r"\[.*\]|\{.*\}", text, re.DOTALL)
         if match:
-            return match.group(0).strip()
-        if text.strip().startswith("[") or text.strip().startswith("{"):
-            return text.strip()
-    except Exception as e:
-        st.warning(f"⚠️ extract_json_from_text error: {e}")
+            return match.group(0)
+    except:
+        pass
     return ""
 
-# --- Fuzzy Column Matching Helper ---
+
+# -------------------------
+# FUZZY MATCH
+# -------------------------
 def fuzzy_match(col, candidates):
     col = col.lower().replace(" ", "")
     for candidate in candidates:
@@ -50,191 +58,203 @@ def fuzzy_match(col, candidates):
             return candidate
     return None
 
-# --- Get KPI List ---
+
+# -------------------------
+# KPI GENERATION
+# -------------------------
 def get_kpi_list(data_preview, industry, scale, goal):
+
     prompt = f"""
-You are an expert business analyst.
+You are a senior business analyst.
 
-The uploaded dataset is from the **{industry}** industry, business scale: **{scale}**, with a goal to: **{goal}**.
-
-Available columns:
+Dataset columns:
 {data_preview.splitlines()[0]}
 
-You need to generate a list of KPIs that are:
-1. Relevant to the goal and industry.
-2. Can be calculated using the dataset.
-3. Structured clearly to help an analytics engine calculate them correctly.
+Industry: {industry}
+Scale: {scale}
+Goal: {goal}
 
-For each KPI, return JSON using this structure:
+Return ONLY JSON:
 
 [
   {{
     "name": "KPI Name",
-    "operation": "SUM / COUNT / AVERAGE / custom logic",
+    "operation": "SUM / COUNT / AVERAGE / RATIO",
     "aggregation_map": {{
         "Column A": "SUM",
-        "Column B": "COUNT_DISTINCT"
+        "Column B": "COUNT"
     }},
     "group_by": ["Column X"],
-    "filter": {{
-        "column": "Offer Type",
-        "value": "Yes"
-    }},
-    "why": "Why this KPI is important"
+    "why": "Reason"
   }}
 ]
-
-🛑 Do NOT include formulas as strings like "SUM(X) / COUNT(Y)" — instead, break it down into "aggregation_map" and "operation" as shown above.
-✅ Do NOT include markdown, explanation, or commentary. Return JSON only.
 """
+
     raw = ask_llm(prompt)
     cleaned = extract_json_from_text(raw)
+
     try:
         return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        st.warning(f"⚠️ JSON decode failed: {e}")
-        st.code(cleaned)
+    except:
         return []
 
-# --- Calculate KPIs ---
-def calculate_kpis(df, kpi_definitions):
-    results = []
-    for kpi in kpi_definitions:
-        try:
-            temp_df = df.copy()
-            filter_info = kpi.get("filter")
-            if filter_info:
-                filter_col = fuzzy_match(filter_info["column"], df.columns)
-                if filter_col:
-                    temp_df = temp_df[temp_df[filter_col] == filter_info["value"]]
-                else:
-                    raise ValueError(f"Filter column '{filter_info['column']}' not found")
 
+# -------------------------
+# KPI CALCULATION
+# -------------------------
+def calculate_kpis(df, kpis):
+
+    results = []
+
+    for kpi in kpis:
+        try:
             agg_results = {}
+
             for col_key, agg_type in kpi["aggregation_map"].items():
                 actual_col = fuzzy_match(col_key, df.columns)
+
                 if not actual_col:
-                    raise ValueError(f"Column '{col_key}' not found")
+                    raise ValueError(f"{col_key} not found")
+
                 if agg_type == "SUM":
-                    agg_results[col_key] = temp_df[actual_col].sum()
+                    agg_results[col_key] = df[actual_col].sum()
                 elif agg_type == "COUNT":
-                    agg_results[col_key] = temp_df[actual_col].count()
-                elif agg_type == "COUNT_DISTINCT":
-                    agg_results[col_key] = temp_df[actual_col].nunique()
+                    agg_results[col_key] = df[actual_col].count()
                 elif agg_type == "AVERAGE":
-                    agg_results[col_key] = temp_df[actual_col].mean()
-                else:
-                    raise ValueError(f"Unsupported aggregation: {agg_type}")
+                    agg_results[col_key] = df[actual_col].mean()
 
             op = kpi["operation"].upper()
-            if op in ["SUM", "AVERAGE", "COUNT", "COUNT_DISTINCT"]:
-                val = list(agg_results.values())[0]
-            elif op in ["DIVIDE", "RATIO"]:
-                keys = list(agg_results.keys())
-                val = agg_results[keys[0]] / agg_results[keys[1]] if agg_results[keys[1]] != 0 else 0
-            elif op == "MULTIPLY":
-                keys = list(agg_results.keys())
-                val = agg_results[keys[0]] * agg_results[keys[1]]
-            else:
-                raise ValueError(f"Unsupported operation: {op}")
 
-            kpi["value"] = round(val, 2) if isinstance(val, (int, float, np.float64)) else val
+            if op in ["SUM", "COUNT", "AVERAGE"]:
+                value = list(agg_results.values())[0]
+
+            elif op == "RATIO":
+                keys = list(agg_results.keys())
+                value = agg_results[keys[0]] / agg_results[keys[1]] if agg_results[keys[1]] != 0 else 0
+
+            else:
+                value = None
+
+            kpi["value"] = round(value, 2) if isinstance(value, (int, float, np.float64)) else value
+
         except Exception as e:
             kpi["value"] = "❌"
             kpi["error"] = str(e)
+
         results.append(kpi)
+
     return results
 
-# --- Get Benchmarks ---
-def get_mock_benchmarks(kpis):
+
+# -------------------------
+# BENCHMARKS
+# -------------------------
+def add_benchmarks(kpis):
     for kpi in kpis:
         try:
-            val = float(kpi["value"])
-            kpi["benchmark"] = round(val * 1.1, 2)
+            kpi["benchmark"] = round(float(kpi["value"]) * 1.1, 2)
         except:
             kpi["benchmark"] = "N/A"
     return kpis
 
-# --- Get Insights ---
-def get_comparative_insights(kpi_list, industry, scale, goal):
+
+# -------------------------
+# INSIGHTS
+# -------------------------
+def get_insights(kpis, industry, scale, goal):
+
     prompt = f"""
-You are a McKinsey consultant. Based on these KPIs for a company in {industry}, scale {scale}, goal: {goal}, give 3-5 insights.
-Each should include:
-- kpi_name
-- company_value
-- benchmark_value
-- observation
-- decision
-- action
-- estimated impact
-Return as JSON.
+You are a business consultant.
+
+Based on KPIs below, give 3 insights.
+
+Return JSON:
+
+[
+ {{
+  "kpi": "...",
+  "observation": "...",
+  "action": "...",
+  "impact": "..."
+ }}
+]
+
 KPIs:
-{kpi_list}
+{kpis}
 """
+
     raw = ask_llm(prompt)
     cleaned = extract_json_from_text(raw)
+
     try:
         return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        st.warning(f"⚠️ Insight JSON decode failed: {e}")
-        st.code(cleaned)
+    except:
         return []
 
-# --- Plot KPI Comparison ---
-def plot_kpi_comparison(kpis):
-    try:
-        df_plot = pd.DataFrame([
-            {"KPI": k["name"], "Type": "Company", "Value": k["value"]} for k in kpis if isinstance(k["value"], (int, float))
-        ] + [
-            {"KPI": k["name"], "Type": "Benchmark", "Value": k["benchmark"]} for k in kpis if isinstance(k["benchmark"], (int, float))
-        ])
-        return px.bar(df_plot, x="KPI", y="Value", color="Type", barmode="group", title="KPI Comparison")
-    except Exception as e:
-        st.error(f"Chart error: {e}")
-        return None
 
-# --- KPI Analyst Main Entry ---
+# -------------------------
+# PLOT
+# -------------------------
+def plot_kpis(kpis):
+    df_plot = pd.DataFrame([
+        {"KPI": k["name"], "Type": "Company", "Value": k["value"]} for k in kpis if isinstance(k["value"], (int, float))
+    ] + [
+        {"KPI": k["name"], "Type": "Benchmark", "Value": k["benchmark"]} for k in kpis if isinstance(k["benchmark"], (int, float))
+    ])
+
+    return px.bar(df_plot, x="KPI", y="Value", color="Type", barmode="group")
+
+
+# -------------------------
+# MAIN FUNCTION
+# -------------------------
 def run_kpi_analyst(raw_dfs):
+
     st.header("📊 KPI Analyst")
 
-    for filename, df in raw_dfs.items():
+    for key, df in raw_dfs.items():
+
+        # ✅ Skip metadata keys
         if not isinstance(df, pd.DataFrame):
-            st.info(f"⏭️ Skipping non-DataFrame entry: {filename}")
             continue
 
-        st.subheader(f"📄 File: {filename}")
-        industry = st.text_input(f"Industry for {filename}", key=f"industry_{filename}")
-        scale = st.text_input(f"Business Scale for {filename}", key=f"scale_{filename}")
-        goal = st.text_area(f"Business Goal for {filename}", key=f"goal_{filename}")
+        # ✅ Clean name instead of df_1
+        file_name = raw_dfs.get(f"{key}_name", key).replace(".csv", "").replace(".xlsx", "")
+
+        st.subheader(f"📄 {file_name}")
+
+        industry = st.text_input(f"Industry - {file_name}", key=f"ind_{key}")
+        scale = st.text_input(f"Scale - {file_name}", key=f"scale_{key}")
+        goal = st.text_area(f"Goal - {file_name}", key=f"goal_{key}")
 
         if not (industry and scale and goal):
-            st.warning("⚠️ Please provide industry, scale, and goal.")
+            st.warning("Enter all fields")
             continue
 
-        st.markdown("### 🔍 Data Preview")
-        st.dataframe(df.head(15))
+        st.dataframe(df.head(10), use_container_width=True)
 
-        kpi_defs = get_kpi_list(df.head(15).to_string(index=False), industry, scale, goal)
-        if not kpi_defs:
-            st.warning("⚠️ No KPI definitions found.")
+        kpis = get_kpi_list(df.head(10).to_string(index=False), industry, scale, goal)
+
+        if not kpis:
+            st.warning("No KPIs generated")
             continue
 
-        st.markdown("### ✅ Calculated KPIs")
-        kpi_with_values = calculate_kpis(df, kpi_defs)
-        kpi_with_benchmarks = get_mock_benchmarks(kpi_with_values)
-        st.dataframe(pd.DataFrame(kpi_with_benchmarks))
+        kpis = calculate_kpis(df, kpis)
+        kpis = add_benchmarks(kpis)
 
-        st.markdown("### 📈 KPI Comparison")
-        fig = plot_kpi_comparison(kpi_with_benchmarks)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown("### ✅ KPIs")
+        st.dataframe(pd.DataFrame(kpis), use_container_width=True)
 
-        st.markdown("### 💡 Insights & Recommendations")
-        insights = get_comparative_insights(kpi_with_benchmarks, industry, scale, goal)
+        st.markdown("### 📊 Comparison")
+        fig = plot_kpis(kpis)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("### 💡 Insights")
+
+        insights = get_insights(kpis, industry, scale, goal)
+
         for ins in insights:
-            st.markdown(f"#### 🔍 KPI: {ins.get('kpi_name')}")
-            st.markdown(f"- **Observation:** {ins.get('observation')}")
-            st.markdown(f"- **Decision:** {ins.get('decision')}")
-            st.markdown(f"- **Action:** {ins.get('action')}")
-            st.markdown(f"- **Estimated Impact:** {ins.get('estimated impact')}")
-
+            st.markdown(f"**{ins.get('kpi')}**")
+            st.markdown(f"- {ins.get('observation')}")
+            st.markdown(f"- Action: {ins.get('action')}")
+            st.markdown(f"- Impact: {ins.get('impact')}")
