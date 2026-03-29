@@ -32,10 +32,8 @@ def load_users():
     return dict(zip(df["email"], df["password"]))
 
 
-def login():
-    st.set_page_config(page_title="Login", layout="centered")
-
-    st.title("🔐 Cafe_X Login")
+def login_block():
+    st.warning("🔒 Login required to use this feature")
 
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
@@ -78,7 +76,6 @@ def check_usage_limit(email, feature):
         (df["feature"] == feature)
     ]
 
-    # last 5 hours only
     user_logs = user_logs[
         user_logs["timestamp"] > (now - timedelta(hours=WINDOW_HOURS))
     ]
@@ -91,7 +88,6 @@ def check_usage_limit(email, feature):
         st.error(f"❌ Limit reached. Try again in ~{mins} mins.")
         return False
 
-    # log usage
     new_row = pd.DataFrame([{
         "email": email,
         "feature": feature,
@@ -128,14 +124,13 @@ def get_remaining_usage(email, feature):
 
 
 # =========================
-# SESSION CHECK
+# SESSION INIT
 # =========================
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
-if not st.session_state["logged_in"]:
-    login()
-    st.stop()
+if "user" not in st.session_state:
+    st.session_state["user"] = None
 
 
 # =========================
@@ -186,9 +181,11 @@ for k, v in defaults.items():
 # =========================
 # SIDEBAR
 # =========================
-user_email = st.session_state["user"]
+if st.session_state["logged_in"]:
+    st.sidebar.success(f"👤 {st.session_state['user']}")
+else:
+    st.sidebar.info("👤 Guest Mode")
 
-st.sidebar.success(f"👤 {user_email}")
 st.sidebar.title("📁 Upload Files")
 
 uploaded_files = st.sidebar.file_uploader(
@@ -197,10 +194,12 @@ uploaded_files = st.sidebar.file_uploader(
     accept_multiple_files=True
 )
 
-# Usage display
-st.sidebar.markdown("### ⚡ Usage Limits")
-st.sidebar.info(f"🤖 Chatbot left: {get_remaining_usage(user_email, 'chatbot')}")
-st.sidebar.info(f"📊 Analyst AI left: {get_remaining_usage(user_email, 'analyst_ai')}")
+# Show usage ONLY if logged in
+if st.session_state["logged_in"]:
+    user_email = st.session_state["user"]
+    st.sidebar.markdown("### ⚡ Usage Limits")
+    st.sidebar.info(f"🤖 Chatbot left: {get_remaining_usage(user_email, 'chatbot')}")
+    st.sidebar.info(f"📊 Analyst AI left: {get_remaining_usage(user_email, 'analyst_ai')}")
 
 # =========================
 # FILE PROCESSING
@@ -238,13 +237,7 @@ pages = [
     "🤖 Chatbot"
 ]
 
-selected_page = st.sidebar.radio(
-    "Navigation",
-    pages,
-    index=pages.index(st.session_state.page)
-)
-
-st.session_state.page = selected_page
+selected_page = st.sidebar.radio("Navigation", pages)
 
 # =========================
 # PAGE ROUTING
@@ -262,10 +255,8 @@ elif selected_page == "🗂️ File Mapping":
             st.session_state["cust_df"] = mapped_data.get("Customers")
             st.session_state["prod_df"] = mapped_data.get("Products")
             st.session_state["promo_df"] = mapped_data.get("Promotions")
-            st.session_state["files_mapped"] = True
 
             st.success("✅ Mapping complete")
-
     else:
         st.warning("Upload files first")
 
@@ -291,29 +282,32 @@ elif selected_page == "📊 RFM":
         st.dataframe(rfm_df, use_container_width=True)
 
 elif selected_page == "🤖 Analyst AI":
-    if raw_dfs:
-        if check_usage_limit(user_email, "analyst_ai"):
-            BA.run_business_analyst_tab(raw_dfs)
-            KPI_analyst.run_kpi_analyst(raw_dfs)
+    if not st.session_state["logged_in"]:
+        login_block()
     else:
-        st.warning("Upload files")
+        if raw_dfs:
+            if check_usage_limit(st.session_state["user"], "analyst_ai"):
+                BA.run_business_analyst_tab(raw_dfs)
+                KPI_analyst.run_kpi_analyst(raw_dfs)
+        else:
+            st.warning("Upload files")
 
 elif selected_page == "🤖 Chatbot":
-    if raw_dfs:
-        if check_usage_limit(user_email, "chatbot"):
-            chatbot2.run_chat(raw_dfs)
+    if not st.session_state["logged_in"]:
+        login_block()
     else:
-        st.warning("Upload files")
+        if raw_dfs:
+            if check_usage_limit(st.session_state["user"], "chatbot"):
+                chatbot2.run_chat(raw_dfs)
+        else:
+            st.warning("Upload files")
 
 # =========================
-# LOGOUT / RESET
+# LOGOUT
 # =========================
 st.sidebar.markdown("---")
 
-if st.sidebar.button("🚪 Logout"):
-    st.session_state.clear()
-    st.rerun()
-
-if st.sidebar.button("🔄 Reset App"):
-    st.session_state.clear()
-    st.rerun()
+if st.session_state["logged_in"]:
+    if st.sidebar.button("🚪 Logout"):
+        st.session_state.clear()
+        st.rerun()
