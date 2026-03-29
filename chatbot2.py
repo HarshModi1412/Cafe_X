@@ -15,22 +15,48 @@ def get_client():
 
 
 # -------------------------
-# CHATGPT CALL
+# CHATGPT CALL (FIXED)
 # -------------------------
-def ask_chatgpt(messages):
+def ask_chatgpt(messages, df_context=None, first_time=False):
     client = get_client()
 
     try:
-        # Convert your message format → plain text conversation
-        prompt = ""
+        structured_messages = []
+
+        # SYSTEM MESSAGE
+        structured_messages.append({
+            "role": "system",
+            "content": "You are a smart business consultant. Give short, practical, data-backed advice. Avoid long answers."
+        })
+
+        # Inject initial instruction ONLY ONCE
+        if first_time and df_context:
+            structured_messages.append({
+                "role": "user",
+                "content": f"""
+Give 3 short, practical tips to improve revenue or profit.
+
+Format:
+- 📌 Tip 1: ...
+- 📌 Tip 2: ...
+(Chart: X vs Y) ← only if useful
+
+Keep it simple.
+
+{df_context}
+"""
+            })
+
+        # Add real chat history ONLY
         for msg in messages:
-            role = msg["role"]
-            text = msg["parts"][0]["text"]
-            prompt += f"{role.upper()}: {text}\n"
+            structured_messages.append({
+                "role": msg["role"],
+                "content": msg["parts"][0]["text"]
+            })
 
         response = client.responses.create(
             model="gpt-4.1-mini",
-            input=prompt,
+            input=structured_messages,
             temperature=0.3,
             max_output_tokens=800
         )
@@ -77,12 +103,18 @@ def run_chat(raw_dfs):
     st.set_page_config(page_title="Smart Business Consultant 📊", layout="wide")
     st.title("ChatGPT-Powered Business Consultant")
 
+    # -------------------------
+    # SESSION STATE
+    # -------------------------
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
     if "used_initial_prompt" not in st.session_state:
         st.session_state.used_initial_prompt = False
 
+    # -------------------------
+    # DATA CHECK
+    # -------------------------
     if not raw_dfs:
         st.warning("⚠️ No data provided.")
         return
@@ -101,75 +133,49 @@ def run_chat(raw_dfs):
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).markdown(msg["parts"][0]["text"])
 
+    # -------------------------
+    # USER INPUT
+    # -------------------------
     user_input = st.chat_input("Ask something about your business...")
 
     if user_input:
 
-        # USER MESSAGE
+        # Display user message
         st.chat_message("user").markdown(user_input)
+
+        # Save ONLY real user message
         st.session_state.messages.append({
             "role": "user",
             "parts": [{"text": user_input}]
         })
 
+        # Data context
         preview_json = df_combined.head(30).to_json(orient="records")
         df_context = f"Here is sample business data:\n{preview_json}"
 
-        # -------------------------
-        # SYSTEM PROMPT (ONCE)
-        # -------------------------
-        if "system_prompt_added" not in st.session_state:
-
-            system_message = {
-                "role": "system",
-                "parts": [{
-                    "text": "You are a smart business consultant. Give short, practical, data-backed advice. Avoid long answers."
-                }]
-            }
-
-            st.session_state.messages.insert(0, system_message)
-            st.session_state.system_prompt_added = True
-
-        # -------------------------
-        # FIRST AUTO PROMPT
-        # -------------------------
-        if not st.session_state.used_initial_prompt:
-
-            first_prompt = f"""
-Give 3 short, practical tips to improve revenue or profit.
-
-Format:
-- 📌 Tip 1: ...
-- 📌 Tip 2: ...
-(Chart: X vs Y) ← only if useful
-
-Keep it simple.
-
-{df_context}
-"""
-
-            st.session_state.messages.append({
-                "role": "user",
-                "parts": [{"text": first_prompt}]
-            })
-
-            st.session_state.used_initial_prompt = True
+        # First time flag
+        is_first = not st.session_state.used_initial_prompt
 
         # -------------------------
         # CALL CHATGPT
         # -------------------------
-        messages = st.session_state.messages.copy()
-
         with st.spinner("Thinking..."):
-            raw_response = ask_chatgpt(messages)
+            raw_response = ask_chatgpt(
+                st.session_state.messages,
+                df_context=df_context,
+                first_time=is_first
+            )
 
+        # Mark first prompt used
+        st.session_state.used_initial_prompt = True
+
+        # Clean response
         response = re.sub(r"```(json)?", "", raw_response, flags=re.DOTALL).strip("` \n")
 
-        # -------------------------
-        # DISPLAY RESPONSE
-        # -------------------------
+        # Display assistant response
         st.chat_message("assistant").markdown(response)
 
+        # Save assistant response
         st.session_state.messages.append({
             "role": "assistant",
             "parts": [{"text": response}]
