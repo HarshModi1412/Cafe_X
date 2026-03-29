@@ -184,7 +184,23 @@ for k, v in defaults.items():
 if st.session_state["logged_in"]:
     st.sidebar.success(f"👤 {st.session_state['user']}")
 else:
-    st.sidebar.info("👤 Guest Mode")
+    st.sidebar.markdown("""
+<div style="
+    background: linear-gradient(135deg, #1f2937, #111827);
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid #374151;
+    margin-bottom: 10px;
+">
+    <div style="font-size: 14px; color: #9ca3af;">👤 Mode</div>
+    <div style="font-size: 18px; font-weight: 600; color: #ffffff;">
+        Guest
+    </div>
+    <div style="font-size: 12px; color: #6b7280;">
+        Login to unlock AI features
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 st.sidebar.title("📁 Upload Files")
 
