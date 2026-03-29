@@ -1,5 +1,71 @@
 import streamlit as st
 import pandas as pd
+import os
+
+# -------------------------
+# LOGIN (CSV-BASED)
+# -------------------------
+USERS_FILE = "users.csv"
+
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        st.error("❌ users.csv not found")
+        return {}
+
+    try:
+        df = pd.read_csv(USERS_FILE)
+
+        if "email" not in df.columns or "password" not in df.columns:
+            st.error("❌ users.csv must have 'email' and 'password' columns")
+            return {}
+
+        # normalize emails
+        df["email"] = df["email"].astype(str).str.strip().str.lower()
+        df["password"] = df["password"].astype(str).str.strip()
+
+        return dict(zip(df["email"], df["password"]))
+
+    except Exception as e:
+        st.error(f"❌ Error reading users.csv: {e}")
+        return {}
+
+
+def login():
+    st.set_page_config(page_title="Login", layout="centered")
+
+    st.title("🔐 Cafe_X Login")
+
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    users = load_users()
+
+    if st.button("Login"):
+        email_clean = email.strip().lower()
+
+        if email_clean in users and users[email_clean] == password:
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = email_clean
+            st.success("✅ Login successful")
+            st.rerun()
+        else:
+            st.error("❌ Invalid email or password")
+
+
+# -------------------------
+# SESSION CHECK
+# -------------------------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    login()
+    st.stop()
+
+
+# =========================
+# MAIN APP
+# =========================
 
 # Modules
 from modules.rfm import calculate_rfm
@@ -45,6 +111,7 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 # ---------------- SIDEBAR ----------------
+st.sidebar.success(f"👤 {st.session_state['user']}")
 st.sidebar.title("📁 Upload Files")
 
 uploaded_files = st.sidebar.file_uploader(
@@ -95,12 +162,10 @@ st.session_state.page = selected_page
 
 # ---------------- PAGE ROUTING ----------------
 
-# 📘 Instructions
 if selected_page == "📘 Instructions":
     st.subheader("Instructions")
     st.markdown("Upload → Map → Analyze")
 
-# 🗂️ File Mapping
 elif selected_page == "🗂️ File Mapping":
     st.subheader("File Mapping")
 
@@ -127,7 +192,6 @@ elif selected_page == "🗂️ File Mapping":
     else:
         st.info("Upload files first")
 
-# 📊 Sales Analytics
 elif selected_page == "📊 Sales Analytics":
     if txns_df is None:
         st.warning("Upload Transactions")
@@ -136,14 +200,12 @@ elif selected_page == "📊 Sales Analytics":
         insights = generate_sales_insights(txns_df)
         generate_dynamic_insights(insights)
 
-# 🔍 Sub-Category
 elif selected_page == "🔍 Sub-Category":
     if txns_df is None:
         st.warning("Upload Transactions")
     else:
         render_subcategory_trends(txns_df)
 
-# 📊 RFM
 elif selected_page == "📊 RFM":
     if txns_df is None:
         st.warning("Upload Transactions")
@@ -151,7 +213,6 @@ elif selected_page == "📊 RFM":
         rfm_df = calculate_rfm(txns_df)
         st.dataframe(rfm_df, use_container_width=True)
 
-# 🤖 Analyst AI
 elif selected_page == "🤖 Analyst AI":
     if raw_dfs:
         BA.run_business_analyst_tab(raw_dfs)
@@ -159,15 +220,19 @@ elif selected_page == "🤖 Analyst AI":
     else:
         st.warning("Upload files")
 
-# 🤖 Chatbot
 elif selected_page == "🤖 Chatbot":
     if raw_dfs:
         chatbot2.run_chat(raw_dfs)
     else:
         st.warning("Upload files")
 
-# ---------------- RESET ----------------
+# ---------------- LOGOUT ----------------
 st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.clear()
+    st.rerun()
+
+# ---------------- RESET ----------------
 if st.sidebar.button("🔄 Reset App"):
     st.session_state.clear()
     st.rerun()
