@@ -5,7 +5,7 @@ import os
 # -------------------------
 # LOGIN (CSV-BASED)
 # -------------------------
-USERS_FILE = "users.csv"
+USERS_FILE = "user.csv"
 
 def load_users():
     if not os.path.exists(USERS_FILE):
