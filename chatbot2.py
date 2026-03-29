@@ -15,7 +15,7 @@ def get_client():
 
 
 # -------------------------
-# CHATGPT CALL (FIXED)
+# CHATGPT CALL
 # -------------------------
 def ask_chatgpt(messages, df_context=None, first_time=False):
     client = get_client()
@@ -29,7 +29,7 @@ def ask_chatgpt(messages, df_context=None, first_time=False):
             "content": "You are a smart business consultant. Give short, practical, data-backed advice. Avoid long answers."
         })
 
-        # Inject initial instruction ONLY ONCE
+        # INITIAL PROMPT (ONLY FIRST TIME - NOT STORED)
         if first_time and df_context:
             structured_messages.append({
                 "role": "user",
@@ -47,7 +47,7 @@ Keep it simple.
 """
             })
 
-        # Add real chat history ONLY
+        # REAL CHAT HISTORY ONLY
         for msg in messages:
             structured_messages.append({
                 "role": msg["role"],
@@ -128,22 +128,26 @@ def run_chat(raw_dfs):
     df_combined = pd.concat(valid_dfs, ignore_index=True)
 
     # -------------------------
-    # SHOW CHAT HISTORY
+    # DISPLAY CHAT HISTORY
     # -------------------------
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).markdown(msg["parts"][0]["text"])
 
     # -------------------------
-    # USER INPUT
+    # INPUT AT BOTTOM (FIXED)
     # -------------------------
+    st.divider()
     user_input = st.chat_input("Ask something about your business...")
 
+    # -------------------------
+    # PROCESS INPUT
+    # -------------------------
     if user_input:
 
-        # Display user message
+        # Show user message
         st.chat_message("user").markdown(user_input)
 
-        # Save ONLY real user message
+        # Save user message
         st.session_state.messages.append({
             "role": "user",
             "parts": [{"text": user_input}]
@@ -153,12 +157,9 @@ def run_chat(raw_dfs):
         preview_json = df_combined.head(30).to_json(orient="records")
         df_context = f"Here is sample business data:\n{preview_json}"
 
-        # First time flag
         is_first = not st.session_state.used_initial_prompt
 
-        # -------------------------
-        # CALL CHATGPT
-        # -------------------------
+        # Call ChatGPT
         with st.spinner("Thinking..."):
             raw_response = ask_chatgpt(
                 st.session_state.messages,
@@ -166,16 +167,15 @@ def run_chat(raw_dfs):
                 first_time=is_first
             )
 
-        # Mark first prompt used
         st.session_state.used_initial_prompt = True
 
         # Clean response
         response = re.sub(r"```(json)?", "", raw_response, flags=re.DOTALL).strip("` \n")
 
-        # Display assistant response
+        # Show assistant response
         st.chat_message("assistant").markdown(response)
 
-        # Save assistant response
+        # Save response
         st.session_state.messages.append({
             "role": "assistant",
             "parts": [{"text": response}]
