@@ -123,7 +123,7 @@ import chatbot2
 
 
 # =========================
-# UI (PREMIUM)
+# UI STYLE
 # =========================
 st.set_page_config(page_title="Cafe_X", layout="wide")
 
@@ -135,23 +135,6 @@ body {background:#0b0f19;color:#e5e7eb;font-family:Inter;}
 .subtle {color:#9ca3af;font-size:13px;}
 </style>
 """, unsafe_allow_html=True)
-
-# HERO
-st.markdown("""
-<div class="hero">
-<h1>🚀 Cafe_X Intelligence</h1>
-<p>Turn raw data into business decisions instantly</p>
-</div>
-""", unsafe_allow_html=True)
-
-# FEATURE CARDS
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown('<div class="card"><h4>📊 Analytics</h4><p class="subtle">Sales insights</p></div>', unsafe_allow_html=True)
-with col2:
-    st.markdown('<div class="card"><h4>🤖 AI Analyst</h4><p class="subtle">Smart recommendations</p></div>', unsafe_allow_html=True)
-with col3:
-    st.markdown('<div class="card"><h4>💬 Chatbot</h4><p class="subtle">Query your data</p></div>', unsafe_allow_html=True)
 
 
 # =========================
@@ -169,7 +152,7 @@ else:
     <div class="card">
         <div class="subtle">Mode</div>
         <div>Guest</div>
-        <div class="subtle">Login for AI</div>
+        <div class="subtle">Login to unlock AI</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -214,7 +197,51 @@ page = st.sidebar.radio("", [
 # PAGES
 # =========================
 if page == "Instructions":
-    st.markdown('<div class="card">Upload → Map → Analyze</div>', unsafe_allow_html=True)
+
+    # HERO
+    st.markdown("""
+    <div class="hero">
+        <h1>🚀 Cafe_X Intelligence Platform</h1>
+        <p>Turn raw retail data into decision-ready insights in minutes</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # FEATURES
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown('<div class="card"><h4>📊 Analytics</h4><p class="subtle">Track sales, trends, and performance</p></div>', unsafe_allow_html=True)
+
+    with col2:
+        st.markdown('<div class="card"><h4>🤖 AI Analyst</h4><p class="subtle">Get consulting-style recommendations</p></div>', unsafe_allow_html=True)
+
+    with col3:
+        st.markdown('<div class="card"><h4>💬 Chatbot</h4><p class="subtle">Ask your data anything</p></div>', unsafe_allow_html=True)
+
+    # HOW IT WORKS
+    st.markdown("""
+    <div class="card">
+        <h3>⚙️ How It Works</h3>
+        <p class="subtle">
+        1. Upload your data<br>
+        2. Map columns<br>
+        3. Analyze performance<br>
+        4. Use AI for insights
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # VALUE
+    st.markdown("""
+    <div class="card">
+        <h3>💡 Why Cafe_X?</h3>
+        <p class="subtle">
+        Dashboards show numbers.<br><br>
+        <b>Cafe_X tells you what actions to take.</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 elif page == "Mapping":
     if uploaded_files:
@@ -222,6 +249,8 @@ elif page == "Mapping":
         if confirmed:
             st.session_state["txns_df"] = mapped.get("Transactions")
             st.success("Mapping done")
+    else:
+        st.warning("Upload files first")
 
 elif page == "Analytics":
     if txns_df is not None:
