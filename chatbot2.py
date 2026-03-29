@@ -1,47 +1,81 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import requests
-import json
 import re
+from openai import OpenAI
 
-# --- Gemini API Config ---
-GEMINI_API_KEY = "AIzaSyD9DfnqPz7vMgh5aUHaMAVjeJbg20VZMvU"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+# -------------------------
+# INIT CLIENT
+# -------------------------
+def get_client():
+    if "OPENAI_API_KEY" not in st.secrets:
+        st.error("OPENAI_API_KEY missing")
+        st.stop()
+    return OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- Gemini API Call ---
-def ask_gemini(messages):
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": GEMINI_API_KEY
-    }
-    payload = {"contents": messages}
+
+# -------------------------
+# CHATGPT CALL
+# -------------------------
+def ask_chatgpt(messages):
+    client = get_client()
+
     try:
-        res = requests.post(GEMINI_URL, headers=headers, json=payload)
-        res.raise_for_status()
-        return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        return f"❌ Gemini API error: {e}"
+        # Convert your message format → plain text conversation
+        prompt = ""
+        for msg in messages:
+            role = msg["role"]
+            text = msg["parts"][0]["text"]
+            prompt += f"{role.upper()}: {text}\n"
 
-# --- Try Plotting Based on Chat Output ---
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=prompt,
+            temperature=0.3,
+            max_output_tokens=800
+        )
+
+        return response.output_text
+
+    except Exception as e:
+        return f"❌ OpenAI Error: {e}"
+
+
+# -------------------------
+# AUTO CHART DETECTION
+# -------------------------
 def try_plot_instruction(text, df):
     try:
         match = re.search(r"([A-Za-z0-9_ ]+)\s+vs\s+([A-Za-z0-9_ ]+)", text)
         if match:
             x_col = match.group(1).strip()
             y_col = match.group(2).strip()
-            x_match = next((col for col in df.columns if x_col.lower().replace(" ", "") in col.lower().replace(" ", "")), None)
-            y_match = next((col for col in df.columns if y_col.lower().replace(" ", "") in col.lower().replace(" ", "")), None)
+
+            x_match = next(
+                (col for col in df.columns if x_col.lower().replace(" ", "") in col.lower().replace(" ", "")),
+                None
+            )
+            y_match = next(
+                (col for col in df.columns if y_col.lower().replace(" ", "") in col.lower().replace(" ", "")),
+                None
+            )
+
             if x_match and y_match:
                 return px.scatter(df, x=x_match, y=y_match, title=f"{y_match} vs {x_match}")
+
     except:
         return None
+
     return None
 
-# --- Run Streamlit Chatbot ---
+
+# -------------------------
+# MAIN CHATBOT
+# -------------------------
 def run_chat(raw_dfs):
+
     st.set_page_config(page_title="Smart Business Consultant 📊", layout="wide")
-    st.title("Gemini-Powered Business Consultant")
+    st.title("ChatGPT-Powered Business Consultant")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -54,76 +88,104 @@ def run_chat(raw_dfs):
         return
 
     valid_dfs = [df for df in raw_dfs.values() if isinstance(df, pd.DataFrame)]
+
     if not valid_dfs:
-        st.warning("⚠️ No valid dataframes found in raw_dfs.")
+        st.warning("⚠️ No valid dataframes found.")
         return
 
     df_combined = pd.concat(valid_dfs, ignore_index=True)
 
-
-    # Show chat history
+    # -------------------------
+    # SHOW CHAT HISTORY
+    # -------------------------
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).markdown(msg["parts"][0]["text"])
 
     user_input = st.chat_input("Ask something about your business...")
 
     if user_input:
+
+        # USER MESSAGE
         st.chat_message("user").markdown(user_input)
-        st.session_state.messages.append({"role": "user", "parts": [{"text": user_input}]})
+        st.session_state.messages.append({
+            "role": "user",
+            "parts": [{"text": user_input}]
+        })
 
         preview_json = df_combined.head(30).to_json(orient="records")
         df_context = f"Here is sample business data:\n{preview_json}"
 
-        # Add system prompt once
+        # -------------------------
+        # SYSTEM PROMPT (ONCE)
+        # -------------------------
         if "system_prompt_added" not in st.session_state:
+
             system_message = {
-                "role": "user",
-                "parts": [ {
-                    "text": "You are a smart business consultant. Always give short, practical tips in simple language. Remember the user's previous context and provide follow-up suggestions if asked."
+                "role": "system",
+                "parts": [{
+                    "text": "You are a smart business consultant. Give short, practical, data-backed advice. Avoid long answers."
                 }]
             }
+
             st.session_state.messages.insert(0, system_message)
             st.session_state.system_prompt_added = True
 
-        # First question: auto prompt
+        # -------------------------
+        # FIRST AUTO PROMPT
+        # -------------------------
         if not st.session_state.used_initial_prompt:
-            first_prompt = f"""
-You're a business consultant.
 
-Give 3 short, practical tips to increase revenue or profit using uploaded data below.
+            first_prompt = f"""
+Give 3 short, practical tips to improve revenue or profit.
 
 Format:
 - 📌 Tip 1: ...
 - 📌 Tip 2: ...
-(Chart: X vs Y) ← only if needed.
+(Chart: X vs Y) ← only if useful
 
-Avoid long answers. Simple language.
+Keep it simple.
 
 {df_context}
 """
-            st.session_state.messages.append({"role": "user", "parts": [{"text": first_prompt}]})
+
+            st.session_state.messages.append({
+                "role": "user",
+                "parts": [{"text": first_prompt}]
+            })
+
             st.session_state.used_initial_prompt = True
 
-        # Send full history to Gemini
+        # -------------------------
+        # CALL CHATGPT
+        # -------------------------
         messages = st.session_state.messages.copy()
 
         with st.spinner("Thinking..."):
-            raw_response = ask_gemini(messages)
+            raw_response = ask_chatgpt(messages)
 
         response = re.sub(r"```(json)?", "", raw_response, flags=re.DOTALL).strip("` \n")
 
+        # -------------------------
+        # DISPLAY RESPONSE
+        # -------------------------
         st.chat_message("assistant").markdown(response)
-        st.session_state.messages.append({"role": "assistant", "parts": [{"text": response}]})
 
-        # Try auto chart
+        st.session_state.messages.append({
+            "role": "assistant",
+            "parts": [{"text": response}]
+        })
+
+        # -------------------------
+        # AUTO CHART
+        # -------------------------
         fig = try_plot_instruction(response, df_combined)
+
         if fig:
             st.plotly_chart(fig, use_container_width=True)
 
 
-# --- Run App ---
+# -------------------------
+# RUN
+# -------------------------
 if __name__ == "__main__":
-    run_chat()
-
-
-
+    run_chat({})
